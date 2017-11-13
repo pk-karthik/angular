@@ -6,15 +6,15 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Component, Directive, Inject, Input} from '@angular/core';
+import {Component, Directive, Input} from '@angular/core';
 import {ComponentFixture, TestBed, async} from '@angular/core/testing';
 import {By} from '@angular/platform-browser/src/dom/debug/by';
+import {browserDetection} from '@angular/platform-browser/testing/src/browser_util';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
 
 export function main() {
   describe('integration tests', () => {
     let fixture: ComponentFixture<TestComponent>;
-
 
     describe('directives', () => {
       it('should support dotted selectors', async(() => {
@@ -38,31 +38,25 @@ export function main() {
          }));
     });
 
-    it('should not throw when Symbol is used as DI token', async(() => {
-         const SOME_SYMBOL = Symbol('Symbol');
-         const ANOTHER_SYMBOL = Symbol('Symbol');
+    describe('ng-container', () => {
+      if (browserDetection.isChromeDesktop) {
+        it('should work regardless the namespace', async(() => {
+             @Component({
+               selector: 'comp',
+               template:
+                   '<svg><ng-container *ngIf="1"><rect x="10" y="10" width="30" height="30"></rect></ng-container></svg>',
+             })
+             class MyCmp {
+             }
 
-         @Component({selector: 'symbol', template: ''})
-         class CmpWithSymbol {
-           constructor(
-               @Inject(SOME_SYMBOL) public symbol: string,
-               @Inject(ANOTHER_SYMBOL) public anotherSymbol: string) {}
-         }
+             const f =
+                 TestBed.configureTestingModule({declarations: [MyCmp]}).createComponent(MyCmp);
+             f.detectChanges();
 
-         TestBed.configureTestingModule({
-           declarations: [CmpWithSymbol],
-           providers: [
-             {provide: SOME_SYMBOL, useValue: 'value'},
-             {provide: SOME_SYMBOL, useValue: 'override'},
-             {provide: ANOTHER_SYMBOL, useValue: 'another value'}
-           ]
-         });
-
-         const fixture = TestBed.createComponent(CmpWithSymbol);
-         fixture.detectChanges();
-         expect(fixture.componentInstance.symbol).toEqual('override');
-         expect(fixture.componentInstance.anotherSymbol).toEqual('another value');
-       }));
+             expect(f.nativeElement.children[0].children[0].tagName).toEqual('rect');
+           }));
+      }
+    });
   });
 }
 

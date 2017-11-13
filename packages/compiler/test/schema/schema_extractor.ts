@@ -28,35 +28,25 @@ const ALL_HTML_TAGS =
 // Elements missing from Chrome (HtmlUnknownElement), to be manually added
 const MISSING_FROM_CHROME: {[el: string]: string[]} = {
   'data^[HTMLElement]': ['value'],
+  'keygen^[HTMLElement]': ['!autofocus', 'challenge', '!disabled', 'form', 'keytype', 'name'],
   // TODO(vicb): Figure out why Chrome and WhatWG do not agree on the props
   // 'menu^[HTMLElement]': ['type', 'label'],
   'menuitem^[HTMLElement]':
       ['type', 'label', 'icon', '!disabled', '!checked', 'radiogroup', '!default'],
   'summary^[HTMLElement]': [],
   'time^[HTMLElement]': ['dateTime'],
+  ':svg:cursor^:svg:': [],
 };
 
 const _G: any = global;
 const document: any = typeof _G['document'] == 'object' ? _G['document'] : null;
 
-export function extractSchema(): Map<string, string[]> {
+export function extractSchema(): Map<string, string[]>|null {
   if (!document) return null;
   const SVGGraphicsElement = _G['SVGGraphicsElement'];
   if (!SVGGraphicsElement) return null;
 
-  const SVGAnimationElement = _G['SVGAnimationElement'];
-  const SVGGeometryElement = _G['SVGGeometryElement'];
-  const SVGComponentTransferFunctionElement = _G['SVGComponentTransferFunctionElement'];
-  const SVGGradientElement = _G['SVGGradientElement'];
-  const SVGTextContentElement = _G['SVGTextContentElement'];
-  const SVGTextPositioningElement = _G['SVGTextPositioningElement'];
   const element = document.createElement('video');
-  const svgAnimation = document.createElementNS('http://www.w3.org/2000/svg', 'set');
-  const svgPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  const svgFeFuncA = document.createElementNS('http://www.w3.org/2000/svg', 'feFuncA');
-  const svgGradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
-  const svgText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-
   const descMap: Map<string, string[]> = new Map();
   const visited: {[name: string]: boolean} = {};
 
@@ -68,6 +58,19 @@ export function extractSchema(): Map<string, string[]> {
   extractProperties(HTMLMediaElement, element, visited, descMap, 'media', HTMLELEMENT_IF);
 
   // SVG top level
+  const svgAnimation = document.createElementNS('http://www.w3.org/2000/svg', 'set');
+  const svgPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  const svgFeFuncA = document.createElementNS('http://www.w3.org/2000/svg', 'feFuncA');
+  const svgGradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+  const svgText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+
+  const SVGAnimationElement = _G['SVGAnimationElement'];
+  const SVGGeometryElement = _G['SVGGeometryElement'];
+  const SVGComponentTransferFunctionElement = _G['SVGComponentTransferFunctionElement'];
+  const SVGGradientElement = _G['SVGGradientElement'];
+  const SVGTextContentElement = _G['SVGTextContentElement'];
+  const SVGTextPositioningElement = _G['SVGTextPositioningElement'];
+
   extractProperties(SVGElement, svgText, visited, descMap, SVG_PREFIX, HTMLELEMENT_IF);
   extractProperties(
       SVGGraphicsElement, svgText, visited, descMap, SVG_PREFIX + 'graphics', SVG_PREFIX);
@@ -120,7 +123,7 @@ function assertNoMissingTags(descMap: Map<string, string[]>): void {
 
 function extractRecursiveProperties(
     visited: {[name: string]: boolean}, descMap: Map<string, string[]>, type: Function): string {
-  const name = extractName(type);
+  const name = extractName(type) !;
 
   if (visited[name]) {
     return name;
@@ -140,7 +143,7 @@ function extractRecursiveProperties(
           extractRecursiveProperties(visited, descMap, type.prototype.__proto__.constructor);
   }
 
-  let instance: HTMLElement = null;
+  let instance: HTMLElement|null = null;
   name.split(',').forEach(tagName => {
     instance = type['name'].startsWith('SVG') ?
         document.createElementNS('http://www.w3.org/2000/svg', tagName.replace(SVG_PREFIX, '')) :
@@ -176,7 +179,7 @@ function extractProperties(
 
   const fullName = name + (superName ? '^' + superName : '');
 
-  const props: string[] = descMap.has(fullName) ? descMap.get(fullName) : [];
+  const props: string[] = descMap.has(fullName) ? descMap.get(fullName) ! : [];
 
   const prototype = type.prototype;
   const keys = Object.getOwnPropertyNames(prototype);
@@ -199,7 +202,7 @@ function extractProperties(
   descMap.set(fullName, type === Node ? props.filter(p => p != '%nodeValue') : props);
 }
 
-function extractName(type: Function): string {
+function extractName(type: Function): string|null {
   let name = type['name'];
 
   switch (name) {

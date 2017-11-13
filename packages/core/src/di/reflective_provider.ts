@@ -26,7 +26,7 @@ interface NormalizedProvider extends TypeProvider, ValueProvider, ClassProvider,
  */
 export class ReflectiveDependency {
   constructor(
-      public key: ReflectiveKey, public optional: boolean, public visibility: Self|SkipSelf) {}
+      public key: ReflectiveKey, public optional: boolean, public visibility: Self|SkipSelf|null) {}
 
   static fromKey(key: ReflectiveKey): ReflectiveDependency {
     return new ReflectiveDependency(key, false, null);
@@ -128,7 +128,8 @@ function resolveReflectiveFactory(provider: NormalizedProvider): ResolvedReflect
  */
 function resolveReflectiveProvider(provider: NormalizedProvider): ResolvedReflectiveProvider {
   return new ResolvedReflectiveProvider_(
-      ReflectiveKey.get(provider.provide), [resolveReflectiveFactory(provider)], provider.multi);
+      ReflectiveKey.get(provider.provide), [resolveReflectiveFactory(provider)],
+      provider.multi || false);
 }
 
 /**
@@ -198,7 +199,7 @@ function _normalizeProviders(providers: Provider[], res: Provider[]): Provider[]
 }
 
 export function constructDependencies(
-    typeOrFunc: any, dependencies: any[]): ReflectiveDependency[] {
+    typeOrFunc: any, dependencies?: any[]): ReflectiveDependency[] {
   if (!dependencies) {
     return _dependenciesFor(typeOrFunc);
   } else {
@@ -224,13 +225,13 @@ function _extractToken(
 
   if (!Array.isArray(metadata)) {
     if (metadata instanceof Inject) {
-      return _createDependency(metadata['token'], optional, null);
+      return _createDependency(metadata.token, optional, null);
     } else {
       return _createDependency(metadata, optional, null);
     }
   }
 
-  let visibility: Self|SkipSelf = null;
+  let visibility: Self|SkipSelf|null = null;
 
   for (let i = 0; i < metadata.length; ++i) {
     const paramMetadata = metadata[i];
@@ -239,7 +240,7 @@ function _extractToken(
       token = paramMetadata;
 
     } else if (paramMetadata instanceof Inject) {
-      token = paramMetadata['token'];
+      token = paramMetadata.token;
 
     } else if (paramMetadata instanceof Optional) {
       optional = true;
@@ -261,6 +262,6 @@ function _extractToken(
 }
 
 function _createDependency(
-    token: any, optional: boolean, visibility: Self | SkipSelf): ReflectiveDependency {
+    token: any, optional: boolean, visibility: Self | SkipSelf | null): ReflectiveDependency {
   return new ReflectiveDependency(ReflectiveKey.get(token), optional, visibility);
 }

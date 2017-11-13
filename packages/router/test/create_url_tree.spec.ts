@@ -16,6 +16,32 @@ import {DefaultUrlSerializer, UrlSegmentGroup, UrlTree} from '../src/url_tree';
 describe('createUrlTree', () => {
   const serializer = new DefaultUrlSerializer();
 
+  describe('query parameters', () => {
+    it('should support parameter with multiple values', () => {
+      const p1 = serializer.parse('/');
+      const t1 = createRoot(p1, ['/'], {m: ['v1', 'v2']});
+      expect(serializer.serialize(t1)).toEqual('/?m=v1&m=v2');
+
+      const p2 = serializer.parse('/a/c');
+      const t2 = create(p2.root.children[PRIMARY_OUTLET], 1, p2, ['c2'], {m: ['v1', 'v2']});
+      expect(serializer.serialize(t2)).toEqual('/a/c/c2?m=v1&m=v2');
+    });
+
+    it('should set query params', () => {
+      const p = serializer.parse('/');
+      const t = createRoot(p, [], {a: 'hey'});
+      expect(t.queryParams).toEqual({a: 'hey'});
+      expect(t.queryParamMap.get('a')).toEqual('hey');
+    });
+
+    it('should stringify query params', () => {
+      const p = serializer.parse('/');
+      const t = createRoot(p, [], <any>{a: 1});
+      expect(t.queryParams).toEqual({a: '1'});
+      expect(t.queryParamMap.get('a')).toEqual('1');
+    });
+  });
+
   it('should navigate to the root', () => {
     const p = serializer.parse('/');
     const t = createRoot(p, ['/']);
@@ -209,18 +235,6 @@ describe('createUrlTree', () => {
     });
   });
 
-  it('should set query params', () => {
-    const p = serializer.parse('/');
-    const t = createRoot(p, [], {a: 'hey'});
-    expect(t.queryParams).toEqual({a: 'hey'});
-  });
-
-  it('should stringify query params', () => {
-    const p = serializer.parse('/');
-    const t = createRoot(p, [], <any>{a: 1});
-    expect(t.queryParams).toEqual({a: '1'});
-  });
-
   it('should set fragment', () => {
     const p = serializer.parse('/');
     const t = createRoot(p, [], {}, 'fragment');
@@ -233,10 +247,10 @@ function createRoot(tree: UrlTree, commands: any[], queryParams?: Params, fragme
       [], <any>{}, <any>{}, '', <any>{}, PRIMARY_OUTLET, 'someComponent', null, tree.root, -1,
       <any>null);
   const a = new ActivatedRoute(
-      new BehaviorSubject(null), new BehaviorSubject(null), new BehaviorSubject(null),
-      new BehaviorSubject(null), new BehaviorSubject(null), PRIMARY_OUTLET, 'someComponent', s);
+      new BehaviorSubject(null !), new BehaviorSubject(null !), new BehaviorSubject(null !),
+      new BehaviorSubject(null !), new BehaviorSubject(null !), PRIMARY_OUTLET, 'someComponent', s);
   advanceActivatedRoute(a);
-  return createUrlTree(a, tree, commands, queryParams, fragment);
+  return createUrlTree(a, tree, commands, queryParams !, fragment !);
 }
 
 function create(
@@ -249,8 +263,8 @@ function create(
       [], <any>{}, <any>{}, '', <any>{}, PRIMARY_OUTLET, 'someComponent', null, <any>segment,
       startIndex, <any>null);
   const a = new ActivatedRoute(
-      new BehaviorSubject(null), new BehaviorSubject(null), new BehaviorSubject(null),
-      new BehaviorSubject(null), new BehaviorSubject(null), PRIMARY_OUTLET, 'someComponent', s);
+      new BehaviorSubject(null !), new BehaviorSubject(null !), new BehaviorSubject(null !),
+      new BehaviorSubject(null !), new BehaviorSubject(null !), PRIMARY_OUTLET, 'someComponent', s);
   advanceActivatedRoute(a);
-  return createUrlTree(a, tree, commands, queryParams, fragment);
+  return createUrlTree(a, tree, commands, queryParams !, fragment !);
 }

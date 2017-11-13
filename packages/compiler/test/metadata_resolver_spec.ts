@@ -6,15 +6,17 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {TEST_COMPILER_PROVIDERS} from '@angular/compiler/testing/src/test_bindings';
+import {LIFECYCLE_HOOKS_VALUES, LifecycleHooks} from '@angular/compiler/src/lifecycle_reflector';
 import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, Component, Directive, DoCheck, Injectable, NgModule, OnChanges, OnDestroy, OnInit, Pipe, SimpleChanges, ViewEncapsulation, ɵstringify as stringify} from '@angular/core';
-import {LIFECYCLE_HOOKS_VALUES} from '@angular/core/src/metadata/lifecycle_hooks';
 import {TestBed, async, inject} from '@angular/core/testing';
+
 import {identifierName} from '../src/compile_metadata';
 import {CompileMetadataResolver} from '../src/metadata_resolver';
 import {ResourceLoader} from '../src/resource_loader';
 import {MockResourceLoader} from '../testing/src/resource_loader_mock';
+
 import {MalformedStylesComponent} from './metadata_resolver_fixture';
+import {TEST_COMPILER_PROVIDERS} from './test_bindings';
 
 export function main() {
   describe('CompileMetadataResolver', () => {
@@ -55,10 +57,10 @@ export function main() {
          expect(meta.hostListeners).toEqual({'someHostListener': 'someHostListenerExpr'});
          expect(meta.hostProperties).toEqual({'someHostProp': 'someHostPropExpr'});
          expect(meta.hostAttributes).toEqual({'someHostAttr': 'someHostAttrValue'});
-         expect(meta.template.encapsulation).toBe(ViewEncapsulation.Emulated);
-         expect(meta.template.styles).toEqual(['someStyle']);
-         expect(meta.template.template).toEqual('someTemplate');
-         expect(meta.template.interpolation).toEqual(['{{', '}}']);
+         expect(meta.template !.encapsulation).toBe(ViewEncapsulation.Emulated);
+         expect(meta.template !.styles).toEqual(['someStyle']);
+         expect(meta.template !.template).toEqual('someTemplate');
+         expect(meta.template !.interpolation).toEqual(['{{', '}}']);
        }));
 
     it('should throw when reading metadata for component with external resources when sync=true is passed',
@@ -84,9 +86,9 @@ export function main() {
              resolver.loadNgModuleDirectiveAndPipeMetadata(SomeModule, false).then(() => {
                const meta = resolver.getDirectiveMetadata(ComponentWithExternalResources);
                expect(meta.selector).toEqual('someSelector');
-               expect(meta.template.styleUrls).toEqual(['someStyleUrl']);
-               expect(meta.template.templateUrl).toEqual('someTemplateUrl');
-               expect(meta.template.template).toEqual('someTemplate');
+               expect(meta.template !.styleUrls).toEqual(['someStyleUrl']);
+               expect(meta.template !.templateUrl).toEqual('someTemplateUrl');
+               expect(meta.template !.template).toEqual('someTemplate');
              });
              resourceLoader.flush();
            })));
@@ -104,7 +106,7 @@ export function main() {
 
          resolver.loadNgModuleDirectiveAndPipeMetadata(SomeModule, false).then(() => {
            const value: string =
-               resolver.getDirectiveMetadata(ComponentWithoutModuleId).template.templateUrl;
+               resolver.getDirectiveMetadata(ComponentWithoutModuleId).template !.templateUrl !;
            const expectedEndValue = './someUrl';
            expect(value.endsWith(expectedEndValue)).toBe(true);
          });
@@ -215,7 +217,7 @@ export function main() {
 
     it('should throw with descriptive error message when null is passed to declarations',
        inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-         @NgModule({declarations: [null]})
+         @NgModule({declarations: [null !]})
          class ModuleWithNullDeclared {
          }
          expect(() => resolver.loadNgModuleDirectiveAndPipeMetadata(ModuleWithNullDeclared, true))
@@ -225,7 +227,7 @@ export function main() {
 
     it('should throw with descriptive error message when null is passed to imports',
        inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-         @NgModule({imports: [null]})
+         @NgModule({imports: [null !]})
          class ModuleWithNullImported {
          }
          expect(() => resolver.loadNgModuleDirectiveAndPipeMetadata(ModuleWithNullImported, true))
@@ -246,7 +248,7 @@ export function main() {
 
     it('should throw with descriptive error message when encounter invalid provider',
        inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-         @NgModule({providers: [{provide: SimpleService, useClass: undefined}]})
+         @NgModule({providers: [{provide: SimpleService, useClass: undefined !}]})
          class SomeModule {
          }
 
@@ -256,7 +258,7 @@ export function main() {
 
     it('should throw with descriptive error message when provider is undefined',
        inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-         @NgModule({providers: [undefined]})
+         @NgModule({providers: [undefined !]})
          class SomeModule {
          }
 
@@ -288,10 +290,10 @@ export function main() {
 
     it('should throw with descriptive error message when null or undefined is passed to module bootstrap',
        inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
-         @NgModule({bootstrap: [null]})
+         @NgModule({bootstrap: [null !]})
          class ModuleWithNullBootstrap {
          }
-         @NgModule({bootstrap: [undefined]})
+         @NgModule({bootstrap: [undefined !]})
          class ModuleWithUndefinedBootstrap {
          }
 
@@ -397,6 +399,18 @@ export function main() {
 
          expect(() => resolver.getNgModuleMetadata(ModuleWithComponentInBootstrap)).not.toThrow();
        }));
+
+    // #20049
+    it('should throw a reasonable message when an invalid import is given',
+       inject([CompileMetadataResolver], (resolver: CompileMetadataResolver) => {
+         @NgModule({imports: [{ngModule: true as any}]})
+         class InvalidModule {
+         }
+
+         expect(() => { resolver.getNgModuleMetadata(InvalidModule); })
+             .toThrowError(
+                 `Unexpected value '[object Object]' imported by the module 'InvalidModule'. Please add a @NgModule annotation.`);
+       }));
   });
 
   it('should dedupe declarations in NgModule',
@@ -410,7 +424,7 @@ export function main() {
        class MyModule {
        }
 
-       const modMeta = resolver.getNgModuleMetadata(MyModule);
+       const modMeta = resolver.getNgModuleMetadata(MyModule) !;
        expect(modMeta.declaredDirectives.length).toBe(1);
        expect(modMeta.declaredDirectives[0].reference).toBe(MyComp);
      }));
@@ -480,11 +494,12 @@ class MyBrokenComp2 {
 class SimpleService {
 }
 
-@Component({selector: 'my-broken-comp', template: '', providers: [SimpleService, null, [null]]})
+@Component({selector: 'my-broken-comp', template: '', providers: [SimpleService, null !, [null]]})
 class MyBrokenComp3 {
 }
 
-@Component({selector: 'my-broken-comp', template: '', viewProviders: [null, SimpleService, [null]]})
+@Component(
+    {selector: 'my-broken-comp', template: '', viewProviders: [null !, SimpleService, [null]]})
 class MyBrokenComp4 {
 }
 

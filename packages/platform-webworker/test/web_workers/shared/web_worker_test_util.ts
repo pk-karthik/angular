@@ -8,7 +8,7 @@
 
 import {Type} from '@angular/core';
 import {NgZone} from '@angular/core/src/zone/ng_zone';
-import {ClientMessageBroker, ClientMessageBrokerFactory_, UiArguments} from '@angular/platform-webworker/src/web_workers/shared/client_message_broker';
+import {ClientMessageBroker, ClientMessageBrokerFactory, UiArguments} from '@angular/platform-webworker/src/web_workers/shared/client_message_broker';
 import {MessageBus, MessageBusSink, MessageBusSource} from '@angular/platform-webworker/src/web_workers/shared/message_bus';
 import {SpyMessageBroker} from '../worker/spies';
 
@@ -44,12 +44,12 @@ export function expectBrokerCall(
   broker.spy('runOnService').and.callFake((args: UiArguments, returnType: Type<any>) => {
     expect(args.method).toEqual(methodName);
     if (vals != null) {
-      expect(args.args.length).toEqual(vals.length);
-      vals.forEach((v, i) => { expect(v).toEqual(args.args[i].value); });
+      expect(args.args !.length).toEqual(vals.length);
+      vals.forEach((v, i) => { expect(v).toEqual(args.args ![i].value); });
     }
-    let promise: Promise<any>|void = null;
+    let promise: Promise<any>|void = null !;
     if (handler != null) {
-      const givenValues = args.args.map((arg) => arg.value);
+      const givenValues = args.args !.map((arg) => arg.value);
       if (givenValues.length > 0) {
         promise = handler(givenValues);
       } else {
@@ -130,7 +130,7 @@ export class MockMessageBus extends MessageBus {
   attachToZone(zone: NgZone) {}
 }
 
-export class MockMessageBrokerFactory extends ClientMessageBrokerFactory_ {
-  constructor(private _messageBroker: ClientMessageBroker) { super(null, null); }
+export class MockMessageBrokerFactory extends ClientMessageBrokerFactory {
+  constructor(private _messageBroker: ClientMessageBroker) { super(null !, null !); }
   createMessageBroker(channel: string, runInZone = true) { return this._messageBroker; }
 }

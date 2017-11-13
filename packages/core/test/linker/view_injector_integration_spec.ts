@@ -184,19 +184,19 @@ class TestComp {
 
 export function main() {
   function createComponentFixture<T>(
-      template: string, providers: Provider[] = null, comp: Type<T> = null): ComponentFixture<T> {
+      template: string, providers?: Provider[] | null, comp?: Type<T>): ComponentFixture<T> {
     if (!comp) {
       comp = <any>TestComp;
     }
-    TestBed.overrideComponent(comp, {set: {template}});
+    TestBed.overrideComponent(comp !, {set: {template}});
     if (providers && providers.length) {
-      TestBed.overrideComponent(comp, {add: {providers: providers}});
+      TestBed.overrideComponent(comp !, {add: {providers: providers}});
     }
-    return TestBed.createComponent(comp);
+    return TestBed.createComponent(comp !);
   }
 
   function createComponent(
-      template: string, providers: Provider[] = null, comp: Type<any> = null): DebugElement {
+      template: string, providers?: Provider[], comp?: Type<any>): DebugElement {
     const fixture = createComponentFixture(template, providers, comp);
     fixture.detectChanges();
     return fixture.debugElement;
@@ -341,6 +341,128 @@ export function main() {
 
         expect(created).toBe(true);
       });
+
+      it('should provide undefined', () => {
+        let factoryCounter = 0;
+
+        const el = createComponent('', [{
+                                     provide: 'token',
+                                     useFactory: () => {
+                                       factoryCounter++;
+                                       return undefined;
+                                     }
+                                   }]);
+
+        expect(el.injector.get('token')).toBeUndefined();
+        expect(el.injector.get('token')).toBeUndefined();
+        expect(factoryCounter).toBe(1);
+      });
+
+      describe('injecting lazy providers into an eager provider via Injector.get', () => {
+
+        it('should inject providers that were declared before it', () => {
+          @Component({
+            template: '',
+            providers: [
+              {provide: 'lazy', useFactory: () => 'lazyValue'},
+              {
+                provide: 'eager',
+                useFactory: (i: Injector) => `eagerValue: ${i.get('lazy')}`,
+                deps: [Injector]
+              },
+            ]
+          })
+          class MyComp {
+            // Component is eager, which makes all of its deps eager
+            constructor(@Inject('eager') eager: any) {}
+          }
+
+          const ctx =
+              TestBed.configureTestingModule({declarations: [MyComp]}).createComponent(MyComp);
+          expect(ctx.debugElement.injector.get('eager')).toBe('eagerValue: lazyValue');
+        });
+
+        it('should inject providers that were declared after it', () => {
+          @Component({
+            template: '',
+            providers: [
+              {
+                provide: 'eager',
+                useFactory: (i: Injector) => `eagerValue: ${i.get('lazy')}`,
+                deps: [Injector]
+              },
+              {provide: 'lazy', useFactory: () => 'lazyValue'},
+            ]
+          })
+          class MyComp {
+            // Component is eager, which makes all of its deps eager
+            constructor(@Inject('eager') eager: any) {}
+          }
+
+          const ctx =
+              TestBed.configureTestingModule({declarations: [MyComp]}).createComponent(MyComp);
+          expect(ctx.debugElement.injector.get('eager')).toBe('eagerValue: lazyValue');
+        });
+      });
+
+      describe('injecting eager providers into an eager provider via Injector.get', () => {
+        it('should inject providers that were declared before it', () => {
+          @Component({
+            template: '',
+            providers: [
+              {provide: 'eager1', useFactory: () => 'v1'},
+              {
+                provide: 'eager2',
+                useFactory: (i: Injector) => `v2: ${i.get('eager1')}`,
+                deps: [Injector]
+              },
+            ]
+          })
+          class MyComp {
+            // Component is eager, which makes all of its deps eager
+            constructor(@Inject('eager1') eager1: any, @Inject('eager2') eager2: any) {}
+          }
+
+          const ctx =
+              TestBed.configureTestingModule({declarations: [MyComp]}).createComponent(MyComp);
+          expect(ctx.debugElement.injector.get('eager2')).toBe('v2: v1');
+        });
+
+        it('should inject providers that were declared after it', () => {
+          @Component({
+            template: '',
+            providers: [
+              {
+                provide: 'eager1',
+                useFactory: (i: Injector) => `v1: ${i.get('eager2')}`,
+                deps: [Injector]
+              },
+              {provide: 'eager2', useFactory: () => 'v2'},
+            ]
+          })
+          class MyComp {
+            // Component is eager, which makes all of its deps eager
+            constructor(@Inject('eager1') eager1: any, @Inject('eager2') eager2: any) {}
+          }
+
+          const ctx =
+              TestBed.configureTestingModule({declarations: [MyComp]}).createComponent(MyComp);
+          expect(ctx.debugElement.injector.get('eager1')).toBe('v1: v2');
+        });
+      });
+
+      it('should allow injecting lazy providers via Injector.get from an eager provider that is declared earlier',
+         () => {
+           @Component({providers: [{provide: 'a', useFactory: () => 'aValue'}], template: ''})
+           class SomeComponent {
+             public a: string;
+             constructor(injector: Injector) { this.a = injector.get('a'); }
+           }
+
+           const comp = TestBed.configureTestingModule({declarations: [SomeComponent]})
+                            .createComponent(SomeComponent);
+           expect(comp.componentInstance.a).toBe('aValue');
+         });
 
       it('should support ngOnDestroy for lazy providers', () => {
         let created = false;
@@ -564,6 +686,24 @@ export function main() {
             .toThrowError(
                 /Template parse errors:\nNo provider for SimpleDirective \("\[ERROR ->\]<div needsDirectiveFromHost><\/div>"\): .*SimpleComponent.html@0:0/);
       });
+
+      it('should allow to use the NgModule injector from a root ViewContainerRef.parentInjector',
+         () => {
+           @Component({template: ''})
+           class MyComp {
+             constructor(public vc: ViewContainerRef) {}
+           }
+
+           const compFixture = TestBed
+                                   .configureTestingModule({
+                                     declarations: [MyComp],
+                                     providers: [{provide: 'someToken', useValue: 'someValue'}]
+                                   })
+                                   .createComponent(MyComp);
+
+           expect(compFixture.componentInstance.vc.parentInjector.get('someToken'))
+               .toBe('someValue');
+         });
     });
 
     describe('static attributes', () => {
@@ -634,6 +774,46 @@ export function main() {
         expect(compEl.nativeElement).toHaveText('1');
       });
 
+      it('should inject ChangeDetectorRef of a same element component into a directive', () => {
+        TestBed.configureTestingModule(
+            {declarations: [PushComponentNeedsChangeDetectorRef, DirectiveNeedsChangeDetectorRef]});
+        const cf = createComponentFixture(
+            '<div componentNeedsChangeDetectorRef directiveNeedsChangeDetectorRef></div>');
+        cf.detectChanges();
+        const compEl = cf.debugElement.children[0];
+        const comp = compEl.injector.get(PushComponentNeedsChangeDetectorRef);
+        const dir = compEl.injector.get(DirectiveNeedsChangeDetectorRef);
+        comp.counter = 1;
+        cf.detectChanges();
+        expect(compEl.nativeElement).toHaveText('0');
+        dir.changeDetectorRef.markForCheck();
+        cf.detectChanges();
+        expect(compEl.nativeElement).toHaveText('1');
+      });
+
+      it(`should not inject ChangeDetectorRef of a parent element's component into a directive`, () => {
+        TestBed
+            .configureTestingModule({
+              declarations: [PushComponentNeedsChangeDetectorRef, DirectiveNeedsChangeDetectorRef]
+            })
+            .overrideComponent(
+                PushComponentNeedsChangeDetectorRef,
+                {set: {template: '<ng-content></ng-content>{{counter}}'}});
+        const cf = createComponentFixture(
+            '<div componentNeedsChangeDetectorRef><div directiveNeedsChangeDetectorRef></div></div>');
+        cf.detectChanges();
+        const compEl = cf.debugElement.children[0];
+        const comp = compEl.injector.get(PushComponentNeedsChangeDetectorRef);
+        const dirEl = compEl.children[0];
+        const dir = dirEl.injector.get(DirectiveNeedsChangeDetectorRef);
+        comp.counter = 1;
+        cf.detectChanges();
+        expect(compEl.nativeElement).toHaveText('0');
+        dir.changeDetectorRef.markForCheck();
+        cf.detectChanges();
+        expect(compEl.nativeElement).toHaveText('0');
+      });
+
       it('should inject ViewContainerRef', () => {
         TestBed.configureTestingModule({declarations: [NeedsViewContainerRef]});
         const el = createComponent('<div needsViewContainerRef></div>');
@@ -655,13 +835,16 @@ export function main() {
         class TestModule {
         }
 
-        const testInjector = {};
+        const testInjector = <Injector>{
+          get: (token: any, notFoundValue: any) =>
+                   token === 'someToken' ? 'someNewValue' : notFoundValue
+        };
 
         const compFactory = TestBed.configureTestingModule({imports: [TestModule]})
                                 .get(ComponentFactoryResolver)
                                 .resolveComponentFactory(TestComp);
-        const component = compFactory.create(<Injector>testInjector);
-        expect(component.instance.vcr.parentInjector).toBe(testInjector);
+        const component = compFactory.create(testInjector);
+        expect(component.instance.vcr.parentInjector.get('someToken')).toBe('someNewValue');
       });
 
       it('should inject TemplateRef', () => {

@@ -48,7 +48,7 @@ describe('completions', () => {
     const fileName = '/app/test.ng';
     mockHost.override(fileName, ' > {{tle<\n  {{retl  ><bel/beled}}di>\n   la</b  </d    &a  ');
     expect(() => ngService.getCompletionsAt(fileName, 31)).not.toThrow();
-    mockHost.override(fileName, undefined);
+    mockHost.override(fileName, undefined !);
   });
 
   it('should be able to infer the type of a ngForOf', () => {
@@ -101,7 +101,7 @@ describe('completions', () => {
         }
       }
       try {
-        const originalContent = mockHost.getFileContent(fileName);
+        const originalContent = mockHost.getFileContent(fileName) !;
 
         // For each character in the file, add it to the file and request a completion after it.
         for (let index = 0, len = originalContent.length; index < len; index++) {
@@ -133,7 +133,7 @@ describe('completions', () => {
           tryCompletionsAt(position);
         });
       } finally {
-        mockHost.override(fileName, undefined);
+        mockHost.override(fileName, undefined !);
       }
     }).not.toThrow();
   });
@@ -160,6 +160,33 @@ export class MyComponent {
 
   });
 
+  it('should respect paths configuration', () => {
+    mockHost.overrideOptions(options => {
+      options.baseUrl = '/app';
+      options.paths = {'bar/*': ['foo/bar/*']};
+      return options;
+    });
+    mockHost.addScript('/app/foo/bar/shared.ts', `
+      export interface Node {
+        children: Node[];
+      }
+    `);
+    mockHost.addScript('/app/my.component.ts', `
+      import { Component } from '@angular/core';
+      import { Node } from 'bar/shared';
+
+      @Component({
+        selector: 'my-component',
+        template: '{{tree.~{tree} }}'
+      })
+      export class MyComponent {
+        tree: Node;
+      }
+    `);
+    ngHost.updateAnalyzedModules();
+    contains('/app/my.component.ts', 'tree', 'children');
+  });
+
   function addCode(code: string, cb: (fileName: string, content?: string) => void) {
     const fileName = '/app/app.component.ts';
     const originalContent = mockHost.getFileContent(fileName);
@@ -169,12 +196,12 @@ export class MyComponent {
     try {
       cb(fileName, newContent);
     } finally {
-      mockHost.override(fileName, undefined);
+      mockHost.override(fileName, undefined !);
     }
   }
 
   function contains(fileName: string, locationMarker: string, ...names: string[]) {
-    let location = mockHost.getMarkerLocations(fileName)[locationMarker];
+    let location = mockHost.getMarkerLocations(fileName) ![locationMarker];
     if (location == null) {
       throw new Error(`No marker ${locationMarker} found.`);
     }

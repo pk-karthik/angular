@@ -14,12 +14,6 @@ travisFoldStart "test.e2e.buildPackages"
 travisFoldEnd "test.e2e.buildPackages"
 
 
-if [[ ${TRAVIS:-} ]]; then
-  travisFoldStart "test.e2e.xvfb-start"
-    sh -e /etc/init.d/xvfb start
-  travisFoldEnd "test.e2e.xvfb-start"
-fi
-
 travisFoldStart "test.e2e.publicApi"
   $(npm bin)/gulp public-api:enforce
 travisFoldEnd "test.e2e.publicApi"
@@ -32,7 +26,6 @@ travisFoldEnd "test.e2e.check-cycle"
 
 # Serve files for e2e tests
 (
-  cd dist/
   $(npm bin)/gulp serve &
   $(npm bin)/gulp serve-examples &
 )

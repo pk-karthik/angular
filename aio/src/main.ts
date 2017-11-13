@@ -1,13 +1,18 @@
-import 'core-js/es7/reflect';
-import 'zone.js/dist/zone';
-
+import { enableProdMode, ApplicationRef } from '@angular/core';
 import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';
-import { enableProdMode } from '@angular/core';
-import { environment } from './environments/environment';
+
 import { AppModule } from './app/app.module';
+import { environment } from './environments/environment';
 
 if (environment.production) {
   enableProdMode();
 }
 
-platformBrowserDynamic().bootstrapModule(AppModule);
+platformBrowserDynamic().bootstrapModule(AppModule).then(ref => {
+  if (environment.production && 'serviceWorker' in (navigator as any)) {
+    const appRef: ApplicationRef = ref.injector.get(ApplicationRef);
+    appRef.isStable.first().subscribe(() => {
+      (navigator as any).serviceWorker.register('/worker-basic.min.js');
+    });
+  }
+});

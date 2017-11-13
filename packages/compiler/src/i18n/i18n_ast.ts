@@ -9,6 +9,8 @@
 import {ParseSourceSpan} from '../parse_util';
 
 export class Message {
+  sources: MessageSpan[];
+
   /**
    * @param nodes message AST
    * @param placeholders maps placeholder names to static content
@@ -20,7 +22,28 @@ export class Message {
   constructor(
       public nodes: Node[], public placeholders: {[phName: string]: string},
       public placeholderToMessage: {[phName: string]: Message}, public meaning: string,
-      public description: string, public id: string) {}
+      public description: string, public id: string) {
+    if (nodes.length) {
+      this.sources = [{
+        filePath: nodes[0].sourceSpan.start.file.url,
+        startLine: nodes[0].sourceSpan.start.line + 1,
+        startCol: nodes[0].sourceSpan.start.col + 1,
+        endLine: nodes[nodes.length - 1].sourceSpan.end.line + 1,
+        endCol: nodes[0].sourceSpan.start.col + 1
+      }];
+    } else {
+      this.sources = [];
+    }
+  }
+}
+
+// line and columns indexes are 1 based
+export interface MessageSpan {
+  filePath: string;
+  startLine: number;
+  startCol: number;
+  endLine: number;
+  endCol: number;
 }
 
 export interface Node {
@@ -114,7 +137,7 @@ export class CloneVisitor implements Visitor {
 
 // Visit all the nodes recursively
 export class RecurseVisitor implements Visitor {
-  visitText(text: Text, context?: any): any{};
+  visitText(text: Text, context?: any): any {}
 
   visitContainer(container: Container, context?: any): any {
     container.children.forEach(child => child.visit(this));
@@ -128,7 +151,7 @@ export class RecurseVisitor implements Visitor {
     ph.children.forEach(child => child.visit(this));
   }
 
-  visitPlaceholder(ph: Placeholder, context?: any): any{};
+  visitPlaceholder(ph: Placeholder, context?: any): any {}
 
-  visitIcuPlaceholder(ph: IcuPlaceholder, context?: any): any{};
+  visitIcuPlaceholder(ph: IcuPlaceholder, context?: any): any {}
 }

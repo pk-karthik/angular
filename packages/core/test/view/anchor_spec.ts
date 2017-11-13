@@ -6,26 +6,14 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Injector, RenderComponentType, RootRenderer, Sanitizer, SecurityContext, ViewEncapsulation, getDebugNode} from '@angular/core';
-import {DebugContext, NodeDef, NodeFlags, RootData, Services, ViewData, ViewDefinition, ViewFlags, ViewHandleEventFn, ViewUpdateFn, anchorDef, asElementData, elementDef, rootRenderNodes, textDef, viewDef} from '@angular/core/src/view/index';
+import {getDebugNode} from '@angular/core';
+import {NodeFlags, anchorDef, asElementData, elementDef} from '@angular/core/src/view/index';
 import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 
-import {createRootView, isBrowser} from './helper';
+import {compViewDef, createAndGetRootNodes} from './helper';
 
 export function main() {
   describe(`View Anchor`, () => {
-    function compViewDef(
-        nodes: NodeDef[], updateDirectives?: ViewUpdateFn,
-        updateRenderer?: ViewUpdateFn): ViewDefinition {
-      return viewDef(ViewFlags.None, nodes, updateDirectives, updateRenderer);
-    }
-
-    function createAndGetRootNodes(
-        viewDef: ViewDefinition, ctx?: any): {rootNodes: any[], view: ViewData} {
-      const view = createRootView(viewDef, ctx);
-      const rootNodes = rootRenderNodes(view);
-      return {rootNodes, view};
-    }
 
     describe('create', () => {
       it('should create anchor nodes without parents', () => {
@@ -45,7 +33,7 @@ export function main() {
 
       it('should create anchor nodes with parents', () => {
         const rootNodes = createAndGetRootNodes(compViewDef([
-                            elementDef(NodeFlags.None, null, null, 1, 'div'),
+                            elementDef(0, NodeFlags.None, null, null, 1, 'div'),
                             anchorDef(NodeFlags.None, null, null, 0),
                           ])).rootNodes;
         expect(getDOM().childNodes(rootNodes[0]).length).toBe(1);
@@ -55,7 +43,7 @@ export function main() {
         const someContext = new Object();
         const {view, rootNodes} = createAndGetRootNodes(
             compViewDef([anchorDef(NodeFlags.None, null, null, 0)]), someContext);
-        expect(getDebugNode(rootNodes[0]).nativeNode).toBe(asElementData(view, 0).renderElement);
+        expect(getDebugNode(rootNodes[0]) !.nativeNode).toBe(asElementData(view, 0).renderElement);
       });
     });
   });

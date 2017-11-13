@@ -22,7 +22,7 @@ describe('service without angular', () => {
   let ngHost = new TypeScriptServiceHost(mockHost, service);
   let ngService = createLanguageService(ngHost);
   const fileName = '/app/test.ng';
-  let position = mockHost.getMarkerLocations(fileName)['h1-content'];
+  let position = mockHost.getMarkerLocations(fileName) !['h1-content'];
 
   it('should not crash a get template references',
      () => expect(() => ngService.getTemplateReferences()));
@@ -30,7 +30,7 @@ describe('service without angular', () => {
      () => expect(() => ngService.getDiagnostics(fileName)).not.toThrow());
   it('should not crash a completion',
      () => expect(() => ngService.getCompletionsAt(fileName, position)).not.toThrow());
-  it('should not crash a get defintion',
+  it('should not crash a get definition',
      () => expect(() => ngService.getDefinitionAt(fileName, position)).not.toThrow());
   it('should not crash a hover', () => expect(() => ngService.getHoverAt(fileName, position)));
 });

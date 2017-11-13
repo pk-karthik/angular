@@ -6,14 +6,24 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../../../dist/packages-dist/animations/@angular/animations/browser/testing.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  '@angular/core': 'ng.core',
+  '@angular/animations': 'ng.animations',
+  'rxjs/Observable': 'Rx',
+  'rxjs/Subject': 'Rx',
+};
+
+module.exports = {
+  entry: '../../../../dist/packages-dist/animations/esm5/browser/testing.js',
   dest: '../../../../dist/packages-dist/animations/bundles/animations-browser-testing.umd.js',
   format: 'umd',
+  exports: 'named',
+  amd: {id: '@angular/animations/browser/testing'},
   moduleName: 'ng.animations.browser.testing',
-  globals: {
-    '@angular/core': 'ng.core',
-    '@angular/common': 'ng.common',
-    '@angular/animations': 'ng.animations'
-  }
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

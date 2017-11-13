@@ -54,9 +54,14 @@ export class CodegenComponentFactoryResolver implements ComponentFactoryResolver
   }
 
   resolveComponentFactory<T>(component: {new (...args: any[]): T}): ComponentFactory<T> {
-    let factory = this._factories.get(component) || this._parent.resolveComponentFactory(component);
-
-    return factory ? new ComponentFactoryBoundToModule(factory, this._ngModule) : null;
+    let factory = this._factories.get(component);
+    if (!factory && this._parent) {
+      factory = this._parent.resolveComponentFactory(component);
+    }
+    if (!factory) {
+      throw noComponentFactoryError(component);
+    }
+    return new ComponentFactoryBoundToModule(factory, this._ngModule);
   }
 }
 
@@ -65,6 +70,9 @@ export class ComponentFactoryBoundToModule<C> extends ComponentFactory<C> {
 
   get selector() { return this.factory.selector; }
   get componentType() { return this.factory.componentType; }
+  get ngContentSelectors() { return this.factory.ngContentSelectors; }
+  get inputs() { return this.factory.inputs; }
+  get outputs() { return this.factory.outputs; }
 
   create(
       injector: Injector, projectableNodes?: any[][], rootSelectorOrNode?: string|any,

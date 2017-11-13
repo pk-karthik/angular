@@ -1,26 +1,15 @@
-import { async, ComponentFixture, TestBed } from '@angular/core/testing';
-import { NO_ERRORS_SCHEMA } from '@angular/core';
 import { NavMenuComponent } from './nav-menu.component';
+import { NavigationNode } from 'app/navigation/navigation.service';
 
-describe('NavMenuComponent', () => {
-  let component: NavMenuComponent;
-  let fixture: ComponentFixture<NavMenuComponent>;
-
-  beforeEach(async(() => {
-    TestBed.configureTestingModule({
-      declarations: [ NavMenuComponent ],
-      schemas: [NO_ERRORS_SCHEMA]
-    })
-    .compileComponents();
-  }));
-
-  beforeEach(() => {
-    fixture = TestBed.createComponent(NavMenuComponent);
-    component = fixture.componentInstance;
-    fixture.detectChanges();
-  });
-
-  it('should create', () => {
-    expect(component).toBeTruthy();
+// Testing the component class behaviors, independent of its template
+// No dependencies, no life-cycle hooks. Just new it and test :)
+// Let e2e tests verify how it displays.
+describe('NavMenuComponent (class-only)', () => {
+  it('should filter out hidden nodes', () => {
+    const component = new NavMenuComponent();
+    const nodes: NavigationNode[] =
+      [ { title: 'a' }, { title: 'b', hidden: true}, { title: 'c'} ];
+    component.nodes = nodes;
+    expect(component.filteredNodes).toEqual([ nodes[0], nodes[2] ]);
   });
 });

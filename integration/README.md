@@ -24,21 +24,12 @@ Note that the `package.json` file uses a special `file://../../dist` scheme
 to reference the Angular packages, so that the locally-built Angular
 is installed into the test app.
 
-Also, beware of floating (non-shrinkwrapped) dependencies. If in doubt
-you can install the package directly from `file:../../node_modules`. For example,
-this is useful for protractor, which has a slow post-install step
-(`webdriver-manager update`) that can be skipped when the package from
-Angular's `node_modules` is installed.
+Also, beware of floating (non-locked) dependencies. If in doubt
+you can install the package directly from `file:../../node_modules`.
 
 ## Running integration tests
 
-The first time you run the tests, you'll need some setup:
-
-```shell
-$ ./integration/build_rxjs_es6.sh
-```
-
-Now you can iterate on the tests by keeping the dist folder up-to-date.
+You can iterate on the tests by keeping the dist folder up-to-date.
 See the `package.json` of the test(s) you're debugging, to see which dist/ folders they install from.
 Then run the right `tsc --watch` command to keep those dist folders up-to-date, for example:
 

@@ -6,18 +6,26 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../dist/packages-dist/core/@angular/core.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  'rxjs/Observable': 'Rx',
+  'rxjs/Subject': 'Rx',
+  'rxjs/Observer': 'Rx',
+  'rxjs/Subscription': 'Rx',
+  'rxjs/observable/merge': 'Rx.Observable',
+  'rxjs/operator/share': 'Rx.Observable.prototype'
+};
+
+module.exports = {
+  entry: '../../dist/packages-dist/core/esm5/core.js',
   dest: '../../dist/packages-dist/core/bundles/core.umd.js',
   format: 'umd',
+  exports: 'named',
+  amd: {id: '@angular/core'},
   moduleName: 'ng.core',
-  globals: {
-    'rxjs/Observable': 'Rx',
-    'rxjs/Subject': 'Rx',
-    'rxjs/Observer': 'Rx',
-    'rxjs/Subscription': 'Rx',
-    'rxjs/symbol/observable': 'Rx.Symbol.observable',
-    'rxjs/observable/merge': 'Rx.Observable',
-    'rxjs/operator/share': 'Rx.Observable.prototype'
-  }
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

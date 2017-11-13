@@ -16,7 +16,8 @@ import {getSymbolIterator} from '../util';
  * An unmodifiable list of items that Angular keeps up to date when the state
  * of the application changes.
  *
- * The type of object that {@link Query} and {@link ViewQueryMetadata} provide.
+ * The type of object that {@link ViewChildren}, {@link ContentChildren}, and {@link QueryList}
+ * provide.
  *
  * Implements an iterable interface, therefore it can be used in both ES6
  * javascript `for (var i of items)` loops as well as in Angular templates with
@@ -36,11 +37,10 @@ import {getSymbolIterator} from '../util';
  * @stable
  */
 export class QueryList<T>/* implements Iterable<T> */ {
-  private _dirty = true;
+  public readonly dirty = true;
   private _results: Array<T> = [];
-  private _emitter = new EventEmitter();
+  public readonly changes: Observable<any> = new EventEmitter();
 
-  get changes(): Observable<any> { return this._emitter; }
   get length(): number { return this._results.length; }
   get first(): T { return this._results[0]; }
   get last(): T { return this._results[this.length - 1]; }
@@ -63,7 +63,9 @@ export class QueryList<T>/* implements Iterable<T> */ {
    * See
    * [Array.find](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/find)
    */
-  find(fn: (item: T, index: number, array: T[]) => boolean): T { return this._results.find(fn); }
+  find(fn: (item: T, index: number, array: T[]) => boolean): T|undefined {
+    return this._results.find(fn);
+  }
 
   /**
    * See
@@ -95,16 +97,19 @@ export class QueryList<T>/* implements Iterable<T> */ {
 
   reset(res: Array<T|any[]>): void {
     this._results = flatten(res);
-    this._dirty = false;
+    (this as{dirty: boolean}).dirty = false;
   }
 
-  notifyOnChanges(): void { this._emitter.emit(this); }
+  notifyOnChanges(): void { (this.changes as EventEmitter<any>).emit(this); }
 
   /** internal */
-  setDirty() { this._dirty = true; }
+  setDirty() { (this as{dirty: boolean}).dirty = true; }
 
   /** internal */
-  get dirty() { return this._dirty; }
+  destroy(): void {
+    (this.changes as EventEmitter<any>).complete();
+    (this.changes as EventEmitter<any>).unsubscribe();
+  }
 }
 
 function flatten<T>(list: Array<T|T[]>): T[] {

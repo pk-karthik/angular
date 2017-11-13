@@ -6,19 +6,28 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../../dist/packages-dist/http/@angular/http/testing.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  '@angular/core': 'ng.core',
+  '@angular/compiler': 'ng.compiler',
+  '@angular/platform-browser': 'ng.platformBrowser',
+  '@angular/http': 'ng.http',
+  'rxjs/Observable': 'Rx',
+  'rxjs/ReplaySubject': 'Rx',
+  'rxjs/Subject': 'Rx',
+  'rxjs/operator/take': 'Rx.Observable.prototype'
+};
+
+module.exports = {
+  entry: '../../../dist/packages-dist/http/esm5/testing.js',
   dest: '../../../dist/packages-dist/http/bundles/http-testing.umd.js',
   format: 'umd',
+  exports: 'named',
+  amd: {id: '@angular/http/testing'},
   moduleName: 'ng.http.testing',
-  globals: {
-    '@angular/core': 'ng.core',
-    '@angular/compiler': 'ng.compiler',
-    '@angular/platform-browser': 'ng.platformBrowser',
-    '@angular/http': 'ng.http',
-    'rxjs/Observable': 'Rx',
-    'rxjs/ReplaySubject': 'Rx',
-    'rxjs/Subject': 'Rx',
-    'rxjs/operator/take': 'Rx.Observable.prototype'
-  }
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

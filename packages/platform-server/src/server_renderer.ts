@@ -22,13 +22,14 @@ export class ServerRendererFactory2 implements RendererFactory2 {
       private ngZone: NgZone, @Inject(DOCUMENT) private document: any,
       private sharedStylesHost: SharedStylesHost) {
     this.defaultRenderer = new DefaultServerRenderer2(document, ngZone, this.schema);
-  };
+  }
 
-  createRenderer(element: any, type: RendererType2): Renderer2 {
+  createRenderer(element: any, type: RendererType2|null): Renderer2 {
     if (!element || !type) {
       return this.defaultRenderer;
     }
     switch (type.encapsulation) {
+      case ViewEncapsulation.Native:
       case ViewEncapsulation.Emulated: {
         let renderer = this.rendererByCompId.get(type.id);
         if (!renderer) {
@@ -51,6 +52,9 @@ export class ServerRendererFactory2 implements RendererFactory2 {
       }
     }
   }
+
+  begin() {}
+  end() {}
 }
 
 class DefaultServerRenderer2 implements Renderer2 {
@@ -168,7 +172,8 @@ class DefaultServerRenderer2 implements Renderer2 {
     const el =
         typeof target === 'string' ? getDOM().getGlobalEventTarget(this.document, target) : target;
     const outsideHandler = (event: any) => this.ngZone.runGuarded(() => callback(event));
-    return this.ngZone.runOutsideAngular(() => getDOM().onAndCancel(el, eventName, outsideHandler));
+    return this.ngZone.runOutsideAngular(
+        () => getDOM().onAndCancel(el, eventName, outsideHandler) as any);
   }
 }
 

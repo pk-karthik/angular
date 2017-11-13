@@ -6,13 +6,22 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../dist/packages-dist/platform-browser/@angular/platform-browser.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  '@angular/core': 'ng.core',
+  '@angular/common': 'ng.common',
+};
+
+module.exports = {
+  entry: '../../dist/packages-dist/platform-browser/esm5/platform-browser.js',
   dest: '../../dist/packages-dist/platform-browser/bundles/platform-browser.umd.js',
   format: 'umd',
+  exports: 'named',
+  amd: {id: '@angular/platform-browser'},
   moduleName: 'ng.platformBrowser',
-  globals: {
-    '@angular/core': 'ng.core',
-    '@angular/common': 'ng.common',
-  }
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

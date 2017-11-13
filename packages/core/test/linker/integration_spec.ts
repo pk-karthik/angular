@@ -7,7 +7,8 @@
  */
 
 import {CommonModule} from '@angular/common';
-import {ComponentFactory, EventEmitter, Host, Inject, Injectable, InjectionToken, Injector, NO_ERRORS_SCHEMA, NgModule, OnDestroy, ReflectiveInjector, SkipSelf} from '@angular/core';
+import {CompilerConfig} from '@angular/compiler';
+import {Compiler, ComponentFactory, ComponentRef, ErrorHandler, EventEmitter, Host, Inject, Injectable, InjectionToken, Injector, NO_ERRORS_SCHEMA, NgModule, NgModuleRef, OnDestroy, SkipSelf, ViewRef} from '@angular/core';
 import {ChangeDetectionStrategy, ChangeDetectorRef, PipeTransform} from '@angular/core/src/change_detection/change_detection';
 import {getDebugContext} from '@angular/core/src/errors';
 import {ComponentFactoryResolver} from '@angular/core/src/linker/component_factory_resolver';
@@ -22,6 +23,7 @@ import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 import {DOCUMENT} from '@angular/platform-browser/src/dom/dom_tokens';
 import {dispatchEvent, el} from '@angular/platform-browser/testing/src/browser_util';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
+
 import {stringify} from '../../src/util';
 
 const ANCHOR_ELEMENT = new InjectionToken('AnchorElement');
@@ -36,7 +38,14 @@ export function main() {
 function declareTests({useJit}: {useJit: boolean}) {
   describe('integration tests', function() {
 
-    beforeEach(() => { TestBed.configureCompiler({useJit}); });
+    beforeEach(() => {
+      TestBed.configureCompiler({
+        useJit,
+        providers: [
+          {provide: CompilerConfig, useValue: new CompilerConfig({enableLegacyTemplate: true})}
+        ]
+      });
+    });
 
     describe('react to record changes', function() {
       it('should consume text node changes', () => {
@@ -55,7 +64,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         const template = '<div>{{null}}{{ctxProp}}</div>';
         TestBed.overrideComponent(MyComp, {set: {template}});
         const fixture = TestBed.createComponent(MyComp);
-        fixture.componentInstance.ctxProp = null;
+        fixture.componentInstance.ctxProp = null !;
 
         fixture.detectChanges();
         expect(fixture.nativeElement).toHaveText('');
@@ -102,7 +111,8 @@ function declareTests({useJit}: {useJit: boolean}) {
         fixture.componentInstance.ctxProp = 'Hello World!';
         fixture.detectChanges();
 
-        expect(fixture.debugElement.children[0].nativeElement.id).toEqual('Hello World!');
+        expect(getDOM().getProperty(fixture.debugElement.children[0].nativeElement, 'id'))
+            .toEqual('Hello World!');
       });
 
       it('should consume binding to aria-* attributes', () => {
@@ -133,7 +143,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         expect(getDOM().getAttribute(fixture.debugElement.children[0].nativeElement, 'foo'))
             .toEqual('bar');
 
-        fixture.componentInstance.ctxProp = null;
+        fixture.componentInstance.ctxProp = null !;
         fixture.detectChanges();
         expect(getDOM().hasAttribute(fixture.debugElement.children[0].nativeElement, 'foo'))
             .toBeFalsy();
@@ -150,7 +160,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         expect(getDOM().getStyle(fixture.debugElement.children[0].nativeElement, 'height'))
             .toEqual('10px');
 
-        fixture.componentInstance.ctxProp = null;
+        fixture.componentInstance.ctxProp = null !;
         fixture.detectChanges();
         expect(getDOM().getStyle(fixture.debugElement.children[0].nativeElement, 'height'))
             .toEqual('');
@@ -164,11 +174,13 @@ function declareTests({useJit}: {useJit: boolean}) {
            const fixture = TestBed.createComponent(MyComp);
 
            fixture.detectChanges();
-           expect(fixture.debugElement.children[0].nativeElement.tabIndex).toEqual(0);
+           expect(getDOM().getProperty(fixture.debugElement.children[0].nativeElement, 'tabIndex'))
+               .toEqual(0);
 
            fixture.componentInstance.ctxNumProp = 5;
            fixture.detectChanges();
-           expect(fixture.debugElement.children[0].nativeElement.tabIndex).toEqual(5);
+           expect(getDOM().getProperty(fixture.debugElement.children[0].nativeElement, 'tabIndex'))
+               .toEqual(5);
          });
 
       it('should consume binding to camel-cased properties', () => {
@@ -178,11 +190,13 @@ function declareTests({useJit}: {useJit: boolean}) {
         const fixture = TestBed.createComponent(MyComp);
 
         fixture.detectChanges();
-        expect(fixture.debugElement.children[0].nativeElement.readOnly).toBeFalsy();
+        expect(getDOM().getProperty(fixture.debugElement.children[0].nativeElement, 'readOnly'))
+            .toBeFalsy();
 
         fixture.componentInstance.ctxBoolProp = true;
         fixture.detectChanges();
-        expect(fixture.debugElement.children[0].nativeElement.readOnly).toBeTruthy();
+        expect(getDOM().getProperty(fixture.debugElement.children[0].nativeElement, 'readOnly'))
+            .toBeTruthy();
       });
 
       it('should consume binding to innerHtml', () => {
@@ -227,7 +241,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         fixture.debugElement.componentInstance.ctxProp = 'foo';
         fixture.detectChanges();
 
-        expect(nativeEl.htmlFor).toBe('foo');
+        expect(getDOM().getProperty(nativeEl, 'htmlFor')).toBe('foo');
       });
 
       it('should consume directive watch expression change.', () => {
@@ -263,7 +277,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           fixture.componentInstance.ctxProp = 'a';
           fixture.detectChanges();
 
-          const dir = fixture.debugElement.children[0].references['dir'];
+          const dir = fixture.debugElement.children[0].references !['dir'];
           expect(dir.dirProp).toEqual('aa');
         });
       });
@@ -449,7 +463,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          expect(fixture.debugElement.children[0].children[0].references['alice'])
+          expect(fixture.debugElement.children[0].children[0].references !['alice'])
               .toBeAnInstanceOf(ChildComp);
         });
 
@@ -459,8 +473,22 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          expect(fixture.debugElement.children[0].children[0].references['localdir'])
+          expect(fixture.debugElement.children[0].children[0].references !['localdir'])
               .toBeAnInstanceOf(ExportDir);
+        });
+
+        it('should assign a directive to a ref when it has multiple exportAs names', () => {
+          TestBed.configureTestingModule(
+              {declarations: [MyComp, DirectiveWithMultipleExportAsNames]});
+
+          const template = '<div multiple-export-as #x="dirX" #y="dirY"></div>';
+          TestBed.overrideComponent(MyComp, {set: {template}});
+
+          const fixture = TestBed.createComponent(MyComp);
+          expect(fixture.debugElement.children[0].references !['x'])
+              .toBeAnInstanceOf(DirectiveWithMultipleExportAsNames);
+          expect(fixture.debugElement.children[0].references !['y'])
+              .toBeAnInstanceOf(DirectiveWithMultipleExportAsNames);
         });
 
         it('should make the assigned component accessible in property bindings, even if they were declared before the component',
@@ -485,8 +513,8 @@ function declareTests({useJit}: {useJit: boolean}) {
 
           const pEl = fixture.debugElement.children[0];
 
-          const alice = pEl.children[0].references['alice'];
-          const bob = pEl.children[1].references['bob'];
+          const alice = pEl.children[0].references !['alice'];
+          const bob = pEl.children[1].references !['bob'];
           expect(alice).toBeAnInstanceOf(ChildComp);
           expect(bob).toBeAnInstanceOf(ChildComp);
           expect(alice).not.toBe(bob);
@@ -498,7 +526,8 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          expect(fixture.debugElement.children[0].references['alice']).toBeAnInstanceOf(ChildComp);
+          expect(fixture.debugElement.children[0].references !['alice'])
+              .toBeAnInstanceOf(ChildComp);
         });
 
         it('should assign the element instance to a user-defined variable', () => {
@@ -507,7 +536,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          const value = fixture.debugElement.children[0].children[0].references['alice'];
+          const value = fixture.debugElement.children[0].children[0].references !['alice'];
           expect(value).not.toBe(null);
           expect(value.tagName.toLowerCase()).toEqual('div');
         });
@@ -519,7 +548,7 @@ function declareTests({useJit}: {useJit: boolean}) {
                       MyComp, {set: {template: '<ng-template ref-alice></ng-template>'}})
                   .createComponent(MyComp);
 
-          const value = fixture.debugElement.childNodes[0].references['alice'];
+          const value = fixture.debugElement.childNodes[0].references !['alice'];
           expect(value.createEmbeddedView).toBeTruthy();
         });
 
@@ -529,7 +558,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          expect(fixture.debugElement.children[0].children[0].references['superAlice'])
+          expect(fixture.debugElement.children[0].children[0].references !['superAlice'])
               .toBeAnInstanceOf(ChildComp);
         });
       });
@@ -558,7 +587,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          const cmp = fixture.debugElement.children[0].references['cmp'];
+          const cmp = fixture.debugElement.children[0].references !['cmp'];
 
           fixture.detectChanges();
           expect(cmp.numberOfChecks).toEqual(1);
@@ -579,7 +608,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          const cmp = fixture.debugElement.children[0].references['cmp'];
+          const cmp = fixture.debugElement.children[0].references !['cmp'];
 
           fixture.componentInstance.ctxProp = 'one';
           fixture.detectChanges();
@@ -622,26 +651,29 @@ function declareTests({useJit}: {useJit: boolean}) {
           fixture.detectChanges();
           expect(cmp.numberOfChecks).toEqual(1);
 
-          cmpEl.children[0].triggerEventHandler('click', <Event>{});
-
           // regular element
+          cmpEl.children[0].triggerEventHandler('click', <Event>{});
           fixture.detectChanges();
           fixture.detectChanges();
           expect(cmp.numberOfChecks).toEqual(2);
 
           // element inside of an *ngIf
           cmpEl.children[1].triggerEventHandler('click', <Event>{});
-
           fixture.detectChanges();
           fixture.detectChanges();
           expect(cmp.numberOfChecks).toEqual(3);
 
           // element inside a nested component
           cmpEl.children[2].children[0].triggerEventHandler('click', <Event>{});
-
           fixture.detectChanges();
           fixture.detectChanges();
           expect(cmp.numberOfChecks).toEqual(4);
+
+          // host element
+          cmpEl.triggerEventHandler('click', <Event>{});
+          fixture.detectChanges();
+          fixture.detectChanges();
+          expect(cmp.numberOfChecks).toEqual(5);
         });
 
         it('should not affect updating properties on the component', () => {
@@ -650,7 +682,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           TestBed.overrideComponent(MyComp, {set: {template}});
           const fixture = TestBed.createComponent(MyComp);
 
-          const cmp = fixture.debugElement.children[0].references['cmp'];
+          const cmp = fixture.debugElement.children[0].references !['cmp'];
 
           fixture.componentInstance.ctxProp = 'one';
           fixture.detectChanges();
@@ -671,7 +703,8 @@ function declareTests({useJit}: {useJit: boolean}) {
 
                tick();
 
-               const cmp: PushCmpWithAsyncPipe = fixture.debugElement.children[0].references['cmp'];
+               const cmp: PushCmpWithAsyncPipe =
+                   fixture.debugElement.children[0].references !['cmp'];
                fixture.detectChanges();
                expect(cmp.numberOfChecks).toEqual(1);
 
@@ -703,7 +736,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         const fixture = TestBed.createComponent(MyComp);
 
         const childComponent =
-            fixture.debugElement.children[0].children[0].children[0].references['child'];
+            fixture.debugElement.children[0].children[0].children[0].references !['child'];
         expect(childComponent.myHost).toBeAnInstanceOf(SomeDirective);
       });
 
@@ -725,7 +758,7 @@ function declareTests({useJit}: {useJit: boolean}) {
 
         const tc = fixture.debugElement.children[0].children[0].children[0];
 
-        const childComponent = tc.references['child'];
+        const childComponent = tc.references !['child'];
         expect(childComponent.myHost).toBeAnInstanceOf(SomeDirective);
       });
 
@@ -891,7 +924,7 @@ function declareTests({useJit}: {useJit: boolean}) {
 
         fixture.detectChanges();
 
-        expect(tc.nativeElement.id).toEqual('newId');
+        expect(getDOM().getProperty(tc.nativeElement, 'id')).toEqual('newId');
       });
 
       it('should not use template variables for expressions in hostProperties', () => {
@@ -1019,7 +1052,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         fixture.destroy();
       });
 
-      describe('dynamic ViewContainers', () => {
+      describe('ViewContainerRef', () => {
         beforeEach(() => {
           // we need a module to declarate ChildCompUsingService as an entryComponent otherwise the
           // factory doesn't get created
@@ -1036,30 +1069,184 @@ function declareTests({useJit}: {useJit: boolean}) {
               MyComp, {add: {template: '<div><dynamic-vp #dynamic></dynamic-vp></div>'}});
         });
 
-        it('should allow to create a ViewContainerRef at any bound location', async(() => {
-             const fixture = TestBed.configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
-                                 .createComponent(MyComp);
-             const tc = fixture.debugElement.children[0].children[0];
-             const dynamicVp: DynamicViewport = tc.injector.get(DynamicViewport);
-             dynamicVp.create();
-             fixture.detectChanges();
-             expect(fixture.debugElement.children[0].children[1].nativeElement)
-                 .toHaveText('dynamic greet');
-           }));
+        describe('.createComponent', () => {
+          it('should allow to create a component at any bound location', async(() => {
+               const fixture = TestBed.configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
+                                   .createComponent(MyComp);
+               const tc = fixture.debugElement.children[0].children[0];
+               const dynamicVp: DynamicViewport = tc.injector.get(DynamicViewport);
+               dynamicVp.create();
+               fixture.detectChanges();
+               expect(fixture.debugElement.children[0].children[1].nativeElement)
+                   .toHaveText('dynamic greet');
+             }));
 
-        it('should allow to create multiple ViewContainerRef at a location', async(() => {
-             const fixture = TestBed.configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
-                                 .createComponent(MyComp);
-             const tc = fixture.debugElement.children[0].children[0];
-             const dynamicVp: DynamicViewport = tc.injector.get(DynamicViewport);
-             dynamicVp.create();
-             dynamicVp.create();
-             fixture.detectChanges();
-             expect(fixture.debugElement.children[0].children[1].nativeElement)
-                 .toHaveText('dynamic greet');
-             expect(fixture.debugElement.children[0].children[2].nativeElement)
-                 .toHaveText('dynamic greet');
-           }));
+          it('should allow to create multiple components at a location', async(() => {
+               const fixture = TestBed.configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
+                                   .createComponent(MyComp);
+               const tc = fixture.debugElement.children[0].children[0];
+               const dynamicVp: DynamicViewport = tc.injector.get(DynamicViewport);
+               dynamicVp.create();
+               dynamicVp.create();
+               fixture.detectChanges();
+               expect(fixture.debugElement.children[0].children[1].nativeElement)
+                   .toHaveText('dynamic greet');
+               expect(fixture.debugElement.children[0].children[2].nativeElement)
+                   .toHaveText('dynamic greet');
+             }));
+
+          it('should create a component that has been freshly compiled', () => {
+            @Component({template: ''})
+            class RootComp {
+              constructor(public vc: ViewContainerRef) {}
+            }
+
+            @NgModule({
+              declarations: [RootComp],
+              providers: [{provide: 'someToken', useValue: 'someRootValue'}],
+            })
+            class RootModule {
+            }
+
+            @Component({template: ''})
+            class MyComp {
+              constructor(@Inject('someToken') public someToken: string) {}
+            }
+
+            @NgModule({
+              declarations: [MyComp],
+              providers: [{provide: 'someToken', useValue: 'someValue'}],
+            })
+            class MyModule {
+            }
+
+            const compFixture =
+                TestBed.configureTestingModule({imports: [RootModule]}).createComponent(RootComp);
+            const compiler = <Compiler>TestBed.get(Compiler);
+            const myCompFactory =
+                <ComponentFactory<MyComp>>compiler.compileModuleAndAllComponentsSync(MyModule)
+                    .componentFactories[0];
+
+            // Note: the ComponentFactory was created directly via the compiler, i.e. it
+            // does not have an association to an NgModuleRef.
+            // -> expect the providers of the module that the view container belongs to.
+            const compRef = compFixture.componentInstance.vc.createComponent(myCompFactory);
+            expect(compRef.instance.someToken).toBe('someRootValue');
+          });
+
+          it('should create a component with the passed NgModuleRef', () => {
+            @Component({template: ''})
+            class RootComp {
+              constructor(public vc: ViewContainerRef) {}
+            }
+
+            @Component({template: ''})
+            class MyComp {
+              constructor(@Inject('someToken') public someToken: string) {}
+            }
+
+            @NgModule({
+              declarations: [RootComp, MyComp],
+              entryComponents: [MyComp],
+              providers: [{provide: 'someToken', useValue: 'someRootValue'}],
+            })
+            class RootModule {
+            }
+
+            @NgModule({providers: [{provide: 'someToken', useValue: 'someValue'}]})
+            class MyModule {
+            }
+
+            const compFixture =
+                TestBed.configureTestingModule({imports: [RootModule]}).createComponent(RootComp);
+            const compiler = <Compiler>TestBed.get(Compiler);
+            const myModule = compiler.compileModuleSync(MyModule).create(TestBed.get(NgModuleRef));
+            const myCompFactory = (<ComponentFactoryResolver>TestBed.get(ComponentFactoryResolver))
+                                      .resolveComponentFactory(MyComp);
+
+            // Note: MyComp was declared as entryComponent in the RootModule,
+            // but we pass MyModule to the createComponent call.
+            // -> expect the providers of MyModule!
+            const compRef = compFixture.componentInstance.vc.createComponent(
+                myCompFactory, undefined, undefined, undefined, myModule);
+            expect(compRef.instance.someToken).toBe('someValue');
+          });
+
+          it('should create a component with the NgModuleRef of the ComponentFactoryResolver',
+             () => {
+               @Component({template: ''})
+               class RootComp {
+                 constructor(public vc: ViewContainerRef) {}
+               }
+
+               @NgModule({
+                 declarations: [RootComp],
+                 providers: [{provide: 'someToken', useValue: 'someRootValue'}],
+               })
+               class RootModule {
+               }
+
+               @Component({template: ''})
+               class MyComp {
+                 constructor(@Inject('someToken') public someToken: string) {}
+               }
+
+               @NgModule({
+                 declarations: [MyComp],
+                 entryComponents: [MyComp],
+                 providers: [{provide: 'someToken', useValue: 'someValue'}],
+               })
+               class MyModule {
+               }
+
+               const compFixture = TestBed.configureTestingModule({imports: [RootModule]})
+                                       .createComponent(RootComp);
+               const compiler = <Compiler>TestBed.get(Compiler);
+               const myModule =
+                   compiler.compileModuleSync(MyModule).create(TestBed.get(NgModuleRef));
+               const myCompFactory =
+                   myModule.componentFactoryResolver.resolveComponentFactory(MyComp);
+
+               // Note: MyComp was declared as entryComponent in MyModule,
+               // and we don't pass an explicit ModuleRef to the createComponent call.
+               // -> expect the providers of MyModule!
+               const compRef = compFixture.componentInstance.vc.createComponent(myCompFactory);
+               expect(compRef.instance.someToken).toBe('someValue');
+             });
+        });
+
+        describe('.insert', () => {
+          it('should throw with destroyed views', async(() => {
+               const fixture = TestBed.configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
+                                   .createComponent(MyComp);
+               const tc = fixture.debugElement.children[0].children[0];
+               const dynamicVp: DynamicViewport = tc.injector.get(DynamicViewport);
+               const ref = dynamicVp.create();
+               fixture.detectChanges();
+
+               ref.destroy();
+               expect(() => {
+                 dynamicVp.insert(ref.hostView);
+               }).toThrowError('Cannot insert a destroyed View in a ViewContainer!');
+             }));
+        });
+
+        describe('.move', () => {
+          it('should throw with destroyed views', async(() => {
+               const fixture = TestBed.configureTestingModule({schemas: [NO_ERRORS_SCHEMA]})
+                                   .createComponent(MyComp);
+               const tc = fixture.debugElement.children[0].children[0];
+               const dynamicVp: DynamicViewport = tc.injector.get(DynamicViewport);
+               const ref = dynamicVp.create();
+               fixture.detectChanges();
+
+               ref.destroy();
+               expect(() => {
+                 dynamicVp.move(ref.hostView, 1);
+               }).toThrowError('Cannot move a destroyed View in a ViewContainer!');
+             }));
+        });
+
       });
 
       it('should support static attributes', () => {
@@ -1112,7 +1299,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         TestBed.overrideComponent(MyComp, {set: {template}});
         const fixture = TestBed.createComponent(MyComp);
 
-        const comp = fixture.debugElement.children[0].children[0].references['consuming'];
+        const comp = fixture.debugElement.children[0].children[0].references !['consuming'];
         expect(comp.injectable).toBeAnInstanceOf(InjectableService);
       });
 
@@ -1128,7 +1315,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         TestBed.overrideComponent(DirectiveProvidingInjectableInView, {set: {template}});
         const fixture = TestBed.createComponent(DirectiveProvidingInjectableInView);
 
-        const comp = fixture.debugElement.children[0].references['consuming'];
+        const comp = fixture.debugElement.children[0].references !['consuming'];
         expect(comp.injectable).toBeAnInstanceOf(InjectableService);
       });
 
@@ -1156,7 +1343,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         });
         const fixture = TestBed.createComponent(MyComp);
 
-        const comp = fixture.debugElement.children[0].children[0].references['dir'];
+        const comp = fixture.debugElement.children[0].children[0].references !['dir'];
         expect(comp.directive.injectable).toBeAnInstanceOf(InjectableService);
       });
 
@@ -1206,7 +1393,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         TestBed.overrideComponent(MyComp, {set: {template}});
         const fixture = TestBed.createComponent(MyComp);
 
-        const providing = fixture.debugElement.children[0].references['providing'];
+        const providing = fixture.debugElement.children[0].references !['providing'];
         expect(providing.created).toBe(false);
 
         fixture.componentInstance.ctxBoolProp = true;
@@ -1243,7 +1430,7 @@ function declareTests({useJit}: {useJit: boolean}) {
       });
 
       it('should use a default element name for components without selectors', () => {
-        let noSelectorComponentFactory: ComponentFactory<SomeComponent>;
+        let noSelectorComponentFactory: ComponentFactory<SomeComponent> = undefined !;
 
         @Component({template: '----'})
         class NoSelectorComponent {
@@ -1254,7 +1441,7 @@ function declareTests({useJit}: {useJit: boolean}) {
           constructor(componentFactoryResolver: ComponentFactoryResolver) {
             // grab its own component factory
             noSelectorComponentFactory =
-                componentFactoryResolver.resolveComponentFactory(NoSelectorComponent);
+                componentFactoryResolver.resolveComponentFactory(NoSelectorComponent) !;
           }
         }
 
@@ -1358,16 +1545,18 @@ function declareTests({useJit}: {useJit: boolean}) {
 
              const tc = fixture.debugElement.children[0];
 
-             try {
-               tc.injector.get(DirectiveEmittingEvent).fireEvent('boom');
-             } catch (e) {
-               const c = getDebugContext(e);
-               expect(getDOM().nodeName(c.renderNode).toUpperCase()).toEqual('SPAN');
-               expect(getDOM().nodeName(c.componentRenderElement).toUpperCase()).toEqual('DIV');
-               expect((<Injector>c.injector).get).toBeTruthy();
-               expect(c.context).toBe(fixture.componentInstance);
-               expect(c.references['local']).toBeDefined();
-             }
+             const errorHandler = tc.injector.get(ErrorHandler);
+             let err: any;
+             spyOn(errorHandler, 'handleError').and.callFake((e: any) => err = e);
+             tc.injector.get(DirectiveEmittingEvent).fireEvent('boom');
+
+             expect(err).toBeTruthy();
+             const c = getDebugContext(err);
+             expect(getDOM().nodeName(c.renderNode).toUpperCase()).toEqual('SPAN');
+             expect(getDOM().nodeName(c.componentRenderElement).toUpperCase()).toEqual('DIV');
+             expect((<Injector>c.injector).get).toBeTruthy();
+             expect(c.context).toBe(fixture.componentInstance);
+             expect(c.references['local']).toBeDefined();
            }));
       }
     });
@@ -1449,7 +1638,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         fixture.detectChanges();
 
         const el = getDOM().querySelector(fixture.nativeElement, 'span');
-        expect(el.title).toEqual('TITLE');
+        expect(getDOM().getProperty(el, 'title')).toEqual('TITLE');
       });
     });
 
@@ -1591,6 +1780,51 @@ function declareTests({useJit}: {useJit: boolean}) {
       });
     });
 
+    describe('whitespaces in templates', () => {
+      it('should not remove whitespaces by default', async(() => {
+           @Component({
+             selector: 'comp',
+             template: '<span>foo</span>  <span>bar</span>',
+           })
+           class MyCmp {
+           }
+
+           const f = TestBed.configureTestingModule({declarations: [MyCmp]}).createComponent(MyCmp);
+           f.detectChanges();
+
+           expect(f.nativeElement.childNodes.length).toBe(3);
+         }));
+
+      it('should not remove whitespaces when explicitly requested not to do so', async(() => {
+           @Component({
+             selector: 'comp',
+             template: '<span>foo</span>  <span>bar</span>',
+             preserveWhitespaces: true,
+           })
+           class MyCmp {
+           }
+
+           const f = TestBed.configureTestingModule({declarations: [MyCmp]}).createComponent(MyCmp);
+           f.detectChanges();
+
+           expect(f.nativeElement.childNodes.length).toBe(3);
+         }));
+
+      it('should remove whitespaces when explicitly requested to do so', async(() => {
+           @Component({
+             selector: 'comp',
+             template: '<span>foo</span>  <span>bar</span>',
+             preserveWhitespaces: false,
+           })
+           class MyCmp {
+           }
+
+           const f = TestBed.configureTestingModule({declarations: [MyCmp]}).createComponent(MyCmp);
+           f.detectChanges();
+
+           expect(f.nativeElement.childNodes.length).toBe(2);
+         }));
+    });
 
     if (getDOM().supportsDOMEvents()) {
       describe('svg', () => {
@@ -1721,12 +1955,20 @@ class DynamicViewport {
     const myService = new MyService();
     myService.greeting = 'dynamic greet';
 
-    this.injector = ReflectiveInjector.resolveAndCreate(
-        [{provide: MyService, useValue: myService}], vc.injector);
-    this.componentFactory = componentFactoryResolver.resolveComponentFactory(ChildCompUsingService);
+    this.injector = Injector.create([{provide: MyService, useValue: myService}], vc.injector);
+    this.componentFactory =
+        componentFactoryResolver.resolveComponentFactory(ChildCompUsingService) !;
   }
 
-  create() { this.vc.createComponent(this.componentFactory, this.vc.length, this.injector); }
+  create(): ComponentRef<ChildCompUsingService> {
+    return this.vc.createComponent(this.componentFactory, this.vc.length, this.injector);
+  }
+
+  insert(viewRef: ViewRef, index?: number): ViewRef { return this.vc.insert(viewRef, index); }
+
+  move(viewRef: ViewRef, currentIndex: number): ViewRef {
+    return this.vc.move(viewRef, currentIndex);
+  }
 }
 
 @Directive({selector: '[my-dir]', inputs: ['dirProp: elprop'], exportAs: 'mydir'})
@@ -1753,6 +1995,7 @@ class EventCmp {
 @Component({
   selector: 'push-cmp',
   inputs: ['prop'],
+  host: {'(click)': 'true'},
   changeDetection: ChangeDetectionStrategy.OnPush,
   template:
       '{{field}}<div (click)="noop()"></div><div *ngIf="true" (click)="noop()"></div><event-cmp></event-cmp>'
@@ -1849,7 +2092,7 @@ class MyComp {
 })
 class ChildComp {
   ctxProp: string;
-  dirProp: string;
+  dirProp: string|null;
   constructor(service: MyService) {
     this.ctxProp = service.greeting;
     this.dirProp = null;
@@ -1885,7 +2128,7 @@ class CompWithHost {
 @Component({selector: '[child-cmp2]', viewProviders: [MyService]})
 class ChildComp2 {
   ctxProp: string;
-  dirProp: string;
+  dirProp: string|null;
   constructor(service: MyService) {
     this.ctxProp = service.greeting;
     this.dirProp = null;
@@ -2156,7 +2399,7 @@ class EventBus {
 
 @Directive({
   selector: 'grand-parent-providing-event-bus',
-  providers: [{provide: EventBus, useValue: new EventBus(null, 'grandparent')}]
+  providers: [{provide: EventBus, useValue: new EventBus(null !, 'grandparent')}]
 })
 class GrandParentProvidingEventBus {
   bus: EventBus;
@@ -2192,7 +2435,7 @@ class ChildConsumingEventBus {
 
 @Directive({selector: '[someImpvp]', inputs: ['someImpvp']})
 class SomeImperativeViewport {
-  view: EmbeddedViewRef<Object>;
+  view: EmbeddedViewRef<Object>|null;
   anchor: any;
   constructor(
       public vc: ViewContainerRef, public templateRef: TemplateRef<Object>,
@@ -2219,6 +2462,10 @@ class SomeImperativeViewport {
 
 @Directive({selector: '[export-dir]', exportAs: 'dir'})
 class ExportDir {
+}
+
+@Directive({selector: '[multiple-export-as]', exportAs: 'dirX, dirY'})
+export class DirectiveWithMultipleExportAsNames {
 }
 
 @Component({selector: 'comp'})

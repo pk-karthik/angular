@@ -10,7 +10,7 @@ import {ResourceLoader} from '@angular/compiler';
 import {SourceMap} from '@angular/compiler/src/output/source_map';
 import {extractSourceMap, originalPositionFor} from '@angular/compiler/test/output/source_map_util';
 import {MockResourceLoader} from '@angular/compiler/testing/src/resource_loader_mock';
-import {Component, Directive, ɵglobal} from '@angular/core';
+import {Attribute, Component, Directive, ErrorHandler, ɵglobal} from '@angular/core';
 import {getErrorLogger} from '@angular/core/src/errors';
 import {ComponentFixture, TestBed, fakeAsync, tick} from '@angular/core/testing';
 
@@ -26,15 +26,15 @@ export function main() {
     });
 
     function getErrorLoggerStack(e: Error): string {
-      let logStack: string;
-      getErrorLogger(e)(<any>{error: () => logStack = new Error().stack}, e.message);
+      let logStack: string = undefined !;
+      getErrorLogger(e)(<any>{error: () => logStack = new Error().stack !}, e.message);
       return logStack;
     }
 
     function getSourceMap(genFile: string): SourceMap {
       const jitSources = jitSpy.calls.all().map((call) => call.args[call.args.length - 1]);
       return jitSources.map(source => extractSourceMap(source))
-          .find(map => map && map.file === genFile);
+          .find(map => !!(map && map.file === genFile)) !;
     }
 
     function getSourcePositionForStack(stack: string):
@@ -46,9 +46,9 @@ export function main() {
               .map(line => /\((.*\.ngfactory\.js):(\d+):(\d+)/.exec(line))
               .filter(match => !!match)
               .map(match => ({
-                     file: match[1],
-                     line: parseInt(match[2], 10),
-                     column: parseInt(match[3], 10)
+                     file: match ![1],
+                     line: parseInt(match ![2], 10),
+                     column: parseInt(match ![3], 10)
                    }));
       const ngFactoryLocation = ngFactoryLocations[0];
 
@@ -73,36 +73,36 @@ export function main() {
     }
 
     describe('inline templates', () => {
-      const templateUrl = 'ng:///DynamicTestModule/MyComp.html';
+      const ngUrl = 'ng:///DynamicTestModule/MyComp.html';
 
       function templateDecorator(template: string) { return {template}; }
 
-      declareTests({templateUrl, templateDecorator});
+      declareTests({ngUrl, templateDecorator});
     });
 
     describe('external templates', () => {
-      const templateUrl = 'http://localhost:1234:some/url.html';
+      const ngUrl = 'ng:///some/url.html';
+      const templateUrl = 'http://localhost:1234/some/url.html';
 
       function templateDecorator(template: string) {
         resourceLoader.expect(templateUrl, template);
         return {templateUrl};
       }
 
-      declareTests({templateUrl, templateDecorator});
+      declareTests({ngUrl, templateDecorator});
     });
 
-    function declareTests({templateUrl, templateDecorator}: {
-      templateUrl: string,
-      templateDecorator: (template: string) => { [key: string]: any }
-    }) {
+    function declareTests(
+        {ngUrl, templateDecorator}:
+            {ngUrl: string, templateDecorator: (template: string) => { [key: string]: any }}) {
       it('should use the right source url in html parse errors', fakeAsync(() => {
            @Component({...templateDecorator('<div>\n  </error>')})
            class MyComp {
            }
 
            expect(() => compileAndCreateComponent(MyComp))
-               .toThrowError(new RegExp(
-                   `Template parse errors[\\s\\S]*${templateUrl.replace('$', '\\$')}@1:2`));
+               .toThrowError(
+                   new RegExp(`Template parse errors[\\s\\S]*${ngUrl.replace('$', '\\$')}@1:2`));
          }));
 
       it('should use the right source url in template parse errors', fakeAsync(() => {
@@ -111,8 +111,8 @@ export function main() {
            }
 
            expect(() => compileAndCreateComponent(MyComp))
-               .toThrowError(new RegExp(
-                   `Template parse errors[\\s\\S]*${templateUrl.replace('$', '\\$')}@1:7`));
+               .toThrowError(
+                   new RegExp(`Template parse errors[\\s\\S]*${ngUrl.replace('$', '\\$')}@1:7`));
          }));
 
       it('should create a sourceMap for templates', fakeAsync(() => {
@@ -125,8 +125,10 @@ export function main() {
            compileAndCreateComponent(MyComp);
 
            const sourceMap = getSourceMap('ng:///DynamicTestModule/MyComp.ngfactory.js');
-           expect(sourceMap.sources).toEqual([templateUrl]);
-           expect(sourceMap.sourcesContent).toEqual([template]);
+           expect(sourceMap.sources).toEqual([
+             'ng:///DynamicTestModule/MyComp.ngfactory.js', ngUrl
+           ]);
+           expect(sourceMap.sourcesContent).toEqual([' ', template]);
          }));
 
 
@@ -153,7 +155,38 @@ export function main() {
            expect(getSourcePositionForStack(getErrorLoggerStack(error))).toEqual({
              line: 2,
              column: 4,
-             source: templateUrl,
+             source: ngUrl,
+           });
+         }));
+
+      it('should report di errors with multiple elements and directives', fakeAsync(() => {
+           const template = `<div someDir></div><div someDir="throw"></div>`;
+
+           @Component({...templateDecorator(template)})
+           class MyComp {
+           }
+
+           @Directive({selector: '[someDir]'})
+           class SomeDir {
+             constructor(@Attribute('someDir') someDir: string) {
+               if (someDir === 'throw') {
+                 throw new Error('Test');
+               }
+             }
+           }
+
+           TestBed.configureTestingModule({declarations: [SomeDir]});
+           let error: any;
+           try {
+             compileAndCreateComponent(MyComp);
+           } catch (e) {
+             error = e;
+           }
+           // The error should be logged from the 2nd-element
+           expect(getSourcePositionForStack(getErrorLoggerStack(error))).toEqual({
+             line: 1,
+             column: 19,
+             source: ngUrl,
            });
          }));
 
@@ -177,13 +210,13 @@ export function main() {
            expect(getSourcePositionForStack(error.stack)).toEqual({
              line: 2,
              column: 12,
-             source: templateUrl,
+             source: ngUrl,
            });
            // The error should be logged from the element
            expect(getSourcePositionForStack(getErrorLoggerStack(error))).toEqual({
              line: 2,
              column: 4,
-             source: templateUrl,
+             source: ngUrl,
            });
          }));
 
@@ -198,22 +231,21 @@ export function main() {
            const comp = compileAndCreateComponent(MyComp);
 
            let error: any;
-           try {
-             comp.debugElement.children[0].children[0].triggerEventHandler('click', 'EVENT');
-           } catch (e) {
-             error = e;
-           }
+           const errorHandler = TestBed.get(ErrorHandler);
+           spyOn(errorHandler, 'handleError').and.callFake((e: any) => error = e);
+           comp.debugElement.children[0].children[0].triggerEventHandler('click', 'EVENT');
+           expect(error).toBeTruthy();
            // the stack should point to the binding
            expect(getSourcePositionForStack(error.stack)).toEqual({
              line: 2,
              column: 12,
-             source: templateUrl,
+             source: ngUrl,
            });
            // The error should be logged from the element
            expect(getSourcePositionForStack(getErrorLoggerStack(error))).toEqual({
              line: 2,
              column: 4,
-             source: templateUrl,
+             source: ngUrl,
            });
 
          }));

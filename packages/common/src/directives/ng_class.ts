@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Directive, DoCheck, ElementRef, Input, IterableChanges, IterableDiffer, IterableDiffers, KeyValueChanges, KeyValueDiffer, KeyValueDiffers, Renderer, ɵisListLikeIterable as isListLikeIterable, ɵstringify as stringify} from '@angular/core';
+import {Directive, DoCheck, ElementRef, Input, IterableChanges, IterableDiffer, IterableDiffers, KeyValueChanges, KeyValueDiffer, KeyValueDiffers, Renderer2, ɵisListLikeIterable as isListLikeIterable, ɵstringify as stringify} from '@angular/core';
 
 /**
  * @ngModule CommonModule
@@ -38,14 +38,14 @@ import {Directive, DoCheck, ElementRef, Input, IterableChanges, IterableDiffer, 
  */
 @Directive({selector: '[ngClass]'})
 export class NgClass implements DoCheck {
-  private _iterableDiffer: IterableDiffer<string>;
-  private _keyValueDiffer: KeyValueDiffer<string, any>;
+  private _iterableDiffer: IterableDiffer<string>|null;
+  private _keyValueDiffer: KeyValueDiffer<string, any>|null;
   private _initialClasses: string[] = [];
   private _rawClass: string[]|Set<string>|{[klass: string]: any};
 
   constructor(
       private _iterableDiffers: IterableDiffers, private _keyValueDiffers: KeyValueDiffers,
-      private _ngEl: ElementRef, private _renderer: Renderer) {}
+      private _ngEl: ElementRef, private _renderer: Renderer2) {}
 
   @Input('class')
   set klass(v: string) {
@@ -132,11 +132,16 @@ export class NgClass implements DoCheck {
     }
   }
 
-  private _toggleClass(klass: string, enabled: any): void {
+  private _toggleClass(klass: string, enabled: boolean): void {
     klass = klass.trim();
     if (klass) {
-      klass.split(/\s+/g).forEach(
-          klass => { this._renderer.setElementClass(this._ngEl.nativeElement, klass, !!enabled); });
+      klass.split(/\s+/g).forEach(klass => {
+        if (enabled) {
+          this._renderer.addClass(this._ngEl.nativeElement, klass);
+        } else {
+          this._renderer.removeClass(this._ngEl.nativeElement, klass);
+        }
+      });
     }
   }
 }

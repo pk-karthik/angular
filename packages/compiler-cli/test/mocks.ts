@@ -6,26 +6,25 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {CompilerHostContext} from '@angular/compiler-cli/src/compiler_host';
 import * as ts from 'typescript';
 
 export type Entry = string | Directory;
 
 export interface Directory { [name: string]: Entry; }
 
-export class MockAotContext implements CompilerHostContext {
+export class MockAotContext {
   constructor(public currentDirectory: string, private files: Entry) {}
 
   fileExists(fileName: string): boolean { return typeof this.getEntry(fileName) === 'string'; }
 
   directoryExists(path: string): boolean { return typeof this.getEntry(path) === 'object'; }
 
-  readFile(fileName: string): string|undefined {
+  readFile(fileName: string): string {
     const data = this.getEntry(fileName);
     if (typeof data === 'string') {
       return data;
     }
-    return undefined;
+    return undefined !;
   }
 
   readResource(fileName: string): Promise<string> {
@@ -38,7 +37,7 @@ export class MockAotContext implements CompilerHostContext {
 
   writeFile(fileName: string, data: string): void {
     const parts = fileName.split('/');
-    const name = parts.pop();
+    const name = parts.pop() !;
     const entry = this.getEntry(parts);
     if (entry && typeof entry !== 'string') {
       entry[name] = data;
@@ -56,7 +55,7 @@ export class MockAotContext implements CompilerHostContext {
     parts = normalize(parts);
     let current = this.files;
     while (parts.length) {
-      const part = parts.shift();
+      const part = parts.shift() !;
       if (typeof current === 'string') {
         return undefined;
       }
@@ -82,7 +81,7 @@ export class MockAotContext implements CompilerHostContext {
 function normalize(parts: string[]): string[] {
   const result: string[] = [];
   while (parts.length) {
-    const part = parts.shift();
+    const part = parts.shift() !;
     switch (part) {
       case '.':
         break;
@@ -111,10 +110,10 @@ export class MockCompilerHost implements ts.CompilerHost {
       fileName: string, languageVersion: ts.ScriptTarget,
       onError?: (message: string) => void): ts.SourceFile {
     const sourceText = this.context.readFile(fileName);
-    if (sourceText) {
+    if (sourceText != null) {
       return ts.createSourceFile(fileName, sourceText, languageVersion);
     } else {
-      return undefined;
+      return undefined !;
     }
   }
 

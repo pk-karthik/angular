@@ -7,8 +7,8 @@
  */
 
 import {NgIf} from '@angular/common';
-import {ComponentFactory, ComponentFactoryResolver, ComponentRef, Injector, NgModuleRef, RendererFactory2, RootRenderer, Sanitizer, TemplateRef, ViewContainerRef} from '@angular/core';
-import {ArgumentType, BindingType, NodeFlags, ViewDefinition, ViewFlags, anchorDef, createComponentFactory, directiveDef, elementDef, initServicesIfNeeded, textDef, viewDef} from '@angular/core/src/view/index';
+import {ComponentFactory, ComponentFactoryResolver, ComponentRef, ErrorHandler, Injector, NgModuleRef, RendererFactory2, RootRenderer, Sanitizer, TemplateRef, ViewContainerRef} from '@angular/core';
+import {ArgumentType, BindingFlags, NodeFlags, ViewDefinition, ViewFlags, anchorDef, createComponentFactory, directiveDef, elementDef, initServicesIfNeeded, textDef, viewDef} from '@angular/core/src/view/index';
 import {DomRendererFactory2} from '@angular/platform-browser/src/dom/dom_renderer';
 import {DomSanitizerImpl, SafeStyle} from '@angular/platform-browser/src/security/dom_sanitization_service';
 
@@ -26,8 +26,8 @@ let viewFlags = ViewFlags.None;
 
 function TreeComponent_Host(): ViewDefinition {
   return viewDef(viewFlags, [
-    elementDef(NodeFlags.None, null, null, 1, 'tree', null, null, null, null, TreeComponent_0),
-    directiveDef(NodeFlags.Component, null, 0, TreeComponent, []),
+    elementDef(0, NodeFlags.None, null, null, 1, 'tree', null, null, null, null, TreeComponent_0),
+    directiveDef(1, NodeFlags.Component, null, 0, TreeComponent, []),
   ]);
 }
 
@@ -35,8 +35,9 @@ function TreeComponent_1() {
   return viewDef(
       viewFlags,
       [
-        elementDef(NodeFlags.None, null, null, 1, 'tree', null, null, null, null, TreeComponent_0),
-        directiveDef(NodeFlags.Component, null, 0, TreeComponent, [], {data: [0, 'data']}),
+        elementDef(
+            0, NodeFlags.None, null, null, 1, 'tree', null, null, null, null, TreeComponent_0),
+        directiveDef(1, NodeFlags.Component, null, 0, TreeComponent, [], {data: [0, 'data']}),
       ],
       (check, view) => {
         const cmp = view.component;
@@ -48,8 +49,9 @@ function TreeComponent_2() {
   return viewDef(
       viewFlags,
       [
-        elementDef(NodeFlags.None, null, null, 1, 'tree', null, null, null, null, TreeComponent_0),
-        directiveDef(NodeFlags.Component, null, 0, TreeComponent, [], {data: [0, 'data']}),
+        elementDef(
+            0, NodeFlags.None, null, null, 1, 'tree', null, null, null, null, TreeComponent_0),
+        directiveDef(1, NodeFlags.Component, null, 0, TreeComponent, [], {data: [0, 'data']}),
       ],
       (check, view) => {
         const cmp = view.component;
@@ -62,15 +64,15 @@ function TreeComponent_0(): ViewDefinition {
       viewFlags,
       [
         elementDef(
-            NodeFlags.None, null, null, 1, 'span', null,
-            [[BindingType.ElementStyle, 'backgroundColor', null]]),
-        textDef(null, [' ', ' ']),
+            0, NodeFlags.None, null, null, 1, 'span', null,
+            [[BindingFlags.TypeElementStyle, 'backgroundColor', null]]),
+        textDef(1, null, [' ', ' ']),
         anchorDef(NodeFlags.EmbeddedViews, null, null, 1, null, TreeComponent_1),
         directiveDef(
-            NodeFlags.None, null, 0, NgIf, [ViewContainerRef, TemplateRef], {ngIf: [0, 'ngIf']}),
+            3, NodeFlags.None, null, 0, NgIf, [ViewContainerRef, TemplateRef], {ngIf: [0, 'ngIf']}),
         anchorDef(NodeFlags.EmbeddedViews, null, null, 1, null, TreeComponent_2),
         directiveDef(
-            NodeFlags.None, null, 0, NgIf, [ViewContainerRef, TemplateRef], {ngIf: [0, 'ngIf']}),
+            5, NodeFlags.None, null, 0, NgIf, [ViewContainerRef, TemplateRef], {ngIf: [0, 'ngIf']}),
       ],
       (check, view) => {
         const cmp = view.component;
@@ -97,7 +99,8 @@ export class AppModule implements Injector, NgModuleRef<any> {
     this.renderer2 = new DomRendererFactory2(null, null);
     trustedEmptyColor = this.sanitizer.bypassSecurityTrustStyle('');
     trustedGreyColor = this.sanitizer.bypassSecurityTrustStyle('grey');
-    this.componentFactory = createComponentFactory('#root', TreeComponent, TreeComponent_Host);
+    this.componentFactory =
+        createComponentFactory('#root', TreeComponent, TreeComponent_Host, {}, {}, []);
   }
 
   get(token: any, notFoundValue: any = Injector.THROW_IF_NOT_FOUND): any {
@@ -107,6 +110,7 @@ export class AppModule implements Injector, NgModuleRef<any> {
       case Sanitizer:
         return this.sanitizer;
       case RootRenderer:
+      case ErrorHandler:
         return null;
       case NgModuleRef:
         return this;

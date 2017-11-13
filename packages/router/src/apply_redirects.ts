@@ -18,14 +18,16 @@ import {map} from 'rxjs/operator/map';
 import {mergeMap} from 'rxjs/operator/mergeMap';
 import {EmptyError} from 'rxjs/util/EmptyError';
 
-import {Route, Routes} from './config';
-import {LoadedRouterConfig, RouterConfigLoader} from './router_config_loader';
+import {LoadedRouterConfig, Route, Routes} from './config';
+import {RouterConfigLoader} from './router_config_loader';
 import {PRIMARY_OUTLET, Params, defaultUrlMatcher, navigationCancelingError} from './shared';
 import {UrlSegment, UrlSegmentGroup, UrlSerializer, UrlTree} from './url_tree';
-import {andObservables, forEach, merge, waitForMap, wrapIntoObservable} from './utils/collection';
+import {andObservables, forEach, waitForMap, wrapIntoObservable} from './utils/collection';
 
 class NoMatch {
-  constructor(public segmentGroup: UrlSegmentGroup = null) {}
+  public segmentGroup: UrlSegmentGroup|null;
+
+  constructor(segmentGroup?: UrlSegmentGroup) { this.segmentGroup = segmentGroup || null; }
 }
 
 class AbsoluteRedirect {
@@ -54,6 +56,11 @@ function canLoadFails(route: Route): Observable<LoadedRouterConfig> {
           `Cannot load children because the guard of the route "path: '${route.path}'" returned false`)));
 }
 
+/**
+ * Returns the `UrlTree` with the redirection applied.
+ *
+ * Lazy modules are loaded along the way.
+ */
 export function applyRedirects(
     moduleInjector: Injector, configLoader: RouterConfigLoader, urlSerializer: UrlSerializer,
     urlTree: UrlTree, config: Routes): Observable<UrlTree> {
@@ -75,7 +82,7 @@ class ApplyRedirects {
         this.expandSegmentGroup(this.ngModule, this.config, this.urlTree.root, PRIMARY_OUTLET);
     const urlTrees$ = map.call(
         expanded$, (rootSegmentGroup: UrlSegmentGroup) => this.createUrlTree(
-                       rootSegmentGroup, this.urlTree.queryParams, this.urlTree.fragment));
+                       rootSegmentGroup, this.urlTree.queryParams, this.urlTree.fragment !));
     return _catch.call(urlTrees$, (e: any) => {
       if (e instanceof AbsoluteRedirect) {
         // after an absolute redirect we do not apply any more redirects!
@@ -97,7 +104,7 @@ class ApplyRedirects {
         this.expandSegmentGroup(this.ngModule, this.config, tree.root, PRIMARY_OUTLET);
     const mapped$ = map.call(
         expanded$, (rootSegmentGroup: UrlSegmentGroup) =>
-                       this.createUrlTree(rootSegmentGroup, tree.queryParams, tree.fragment));
+                       this.createUrlTree(rootSegmentGroup, tree.queryParams, tree.fragment !));
     return _catch.call(mapped$, (e: any): Observable<UrlTree> => {
       if (e instanceof NoMatch) {
         throw this.noMatchError(e);
@@ -131,6 +138,7 @@ class ApplyRedirects {
     return this.expandSegment(ngModule, segmentGroup, routes, segmentGroup.segments, outlet, true);
   }
 
+  // Recursively expand segment groups for all the child outlets
   private expandChildren(
       ngModule: NgModuleRef<any>, routes: Route[],
       segmentGroup: UrlSegmentGroup): Observable<{[name: string]: UrlSegmentGroup}> {
@@ -182,16 +190,16 @@ class ApplyRedirects {
       return noMatch(segmentGroup);
     }
 
-    if (route.redirectTo !== undefined && !(allowRedirects && this.allowRedirects)) {
-      return noMatch(segmentGroup);
-    }
-
     if (route.redirectTo === undefined) {
       return this.matchSegmentAgainstRoute(ngModule, segmentGroup, route, paths);
     }
 
-    return this.expandSegmentAgainstRouteUsingRedirect(
-        ngModule, segmentGroup, routes, route, paths, outlet);
+    if (allowRedirects && this.allowRedirects) {
+      return this.expandSegmentAgainstRouteUsingRedirect(
+          ngModule, segmentGroup, routes, route, paths, outlet);
+    }
+
+    return noMatch(segmentGroup);
   }
 
   private expandSegmentAgainstRouteUsingRedirect(
@@ -209,8 +217,8 @@ class ApplyRedirects {
   private expandWildCardWithParamsAgainstRouteUsingRedirect(
       ngModule: NgModuleRef<any>, routes: Route[], route: Route,
       outlet: string): Observable<UrlSegmentGroup> {
-    const newTree = this.applyRedirectCommands([], route.redirectTo, {});
-    if (route.redirectTo.startsWith('/')) {
+    const newTree = this.applyRedirectCommands([], route.redirectTo !, {});
+    if (route.redirectTo !.startsWith('/')) {
       return absoluteRedirect(newTree);
     }
 
@@ -228,8 +236,8 @@ class ApplyRedirects {
     if (!matched) return noMatch(segmentGroup);
 
     const newTree = this.applyRedirectCommands(
-        consumedSegments, route.redirectTo, <any>positionalParamSegments);
-    if (route.redirectTo.startsWith('/')) {
+        consumedSegments, route.redirectTo !, <any>positionalParamSegments);
+    if (route.redirectTo !.startsWith('/')) {
       return absoluteRedirect(newTree);
     }
 
@@ -247,7 +255,7 @@ class ApplyRedirects {
       if (route.loadChildren) {
         return map.call(
             this.configLoader.load(ngModule.injector, route), (cfg: LoadedRouterConfig) => {
-              (<any>route)._loadedConfig = cfg;
+              route._loadedConfig = cfg;
               return new UrlSegmentGroup(segments, {});
             });
       }
@@ -293,16 +301,19 @@ class ApplyRedirects {
     }
 
     if (route.loadChildren) {
-      return mergeMap.call(runGuards(ngModule.injector, route), (shouldLoad: any) => {
+      // lazy children belong to the loaded module
+      if (route._loadedConfig !== undefined) {
+        return of (route._loadedConfig);
+      }
+
+      return mergeMap.call(runCanLoadGuard(ngModule.injector, route), (shouldLoad: boolean) => {
 
         if (shouldLoad) {
-          return (<any>route)._loadedConfig ?
-              of ((<any>route)._loadedConfig) :
-              map.call(
-                  this.configLoader.load(ngModule.injector, route), (cfg: LoadedRouterConfig) => {
-                    (<any>route)._loadedConfig = cfg;
-                    return cfg;
-                  });
+          return map.call(
+              this.configLoader.load(ngModule.injector, route), (cfg: LoadedRouterConfig) => {
+                route._loadedConfig = cfg;
+                return cfg;
+              });
         }
 
         return canLoadFails(route);
@@ -322,7 +333,7 @@ class ApplyRedirects {
       }
 
       if (c.numberOfChildren > 1 || !c.children[PRIMARY_OUTLET]) {
-        return namedOutletsRedirect(route.redirectTo);
+        return namedOutletsRedirect(route.redirectTo !);
       }
 
       c = c.children[PRIMARY_OUTLET];
@@ -347,7 +358,13 @@ class ApplyRedirects {
   private createQueryParams(redirectToParams: Params, actualParams: Params): Params {
     const res: Params = {};
     forEach(redirectToParams, (v: any, k: string) => {
-      res[k] = v.startsWith(':') ? actualParams[v.substring(1)] : v;
+      const copySourceValue = typeof v === 'string' && v.startsWith(':');
+      if (copySourceValue) {
+        const sourceName = v.substring(1);
+        res[k] = actualParams[sourceName];
+      } else {
+        res[k] = v;
+      }
     });
     return res;
   }
@@ -396,12 +413,12 @@ class ApplyRedirects {
   }
 }
 
-function runGuards(moduleInjector: Injector, route: Route): Observable<boolean> {
+function runCanLoadGuard(moduleInjector: Injector, route: Route): Observable<boolean> {
   const canLoad = route.canLoad;
   if (!canLoad || canLoad.length === 0) return of (true);
 
-  const obs = map.call(from(canLoad), (c: any) => {
-    const guard = moduleInjector.get(c);
+  const obs = map.call(from(canLoad), (injectionToken: any) => {
+    const guard = moduleInjector.get(injectionToken);
     return wrapIntoObservable(guard.canLoad ? guard.canLoad(route) : guard(route));
   });
 
@@ -414,8 +431,6 @@ function match(segmentGroup: UrlSegmentGroup, route: Route, segments: UrlSegment
   lastChild: number,
   positionalParamSegments: {[k: string]: UrlSegment}
 } {
-  const noMatch =
-      {matched: false, consumedSegments: <any[]>[], lastChild: 0, positionalParamSegments: {}};
   if (route.path === '') {
     if ((route.pathMatch === 'full') && (segmentGroup.hasChildren() || segments.length > 0)) {
       return {matched: false, consumedSegments: [], lastChild: 0, positionalParamSegments: {}};
@@ -426,13 +441,21 @@ function match(segmentGroup: UrlSegmentGroup, route: Route, segments: UrlSegment
 
   const matcher = route.matcher || defaultUrlMatcher;
   const res = matcher(segments, segmentGroup, route);
-  if (!res) return noMatch;
+
+  if (!res) {
+    return {
+      matched: false,
+      consumedSegments: <any[]>[],
+      lastChild: 0,
+      positionalParamSegments: {},
+    };
+  }
 
   return {
     matched: true,
-    consumedSegments: res.consumed,
-    lastChild: res.consumed.length,
-    positionalParamSegments: res.posParams
+    consumedSegments: res.consumed !,
+    lastChild: res.consumed.length !,
+    positionalParamSegments: res.posParams !,
   };
 }
 
@@ -472,11 +495,11 @@ function addEmptySegmentsToChildrenIfNeeded(
     children: {[name: string]: UrlSegmentGroup}): {[name: string]: UrlSegmentGroup} {
   const res: {[name: string]: UrlSegmentGroup} = {};
   for (const r of routes) {
-    if (emptyPathRedirect(segmentGroup, slicedSegments, r) && !children[getOutlet(r)]) {
+    if (isEmptyPathRedirect(segmentGroup, slicedSegments, r) && !children[getOutlet(r)]) {
       res[getOutlet(r)] = new UrlSegmentGroup([], {});
     }
   }
-  return merge(children, res);
+  return {...children, ...res};
 }
 
 function createChildrenForEmptySegments(
@@ -492,22 +515,19 @@ function createChildrenForEmptySegments(
 }
 
 function containsEmptyPathRedirectsWithNamedOutlets(
-    segmentGroup: UrlSegmentGroup, slicedSegments: UrlSegment[], routes: Route[]): boolean {
-  return routes
-             .filter(
-                 r => emptyPathRedirect(segmentGroup, slicedSegments, r) &&
-                     getOutlet(r) !== PRIMARY_OUTLET)
-             .length > 0;
+    segmentGroup: UrlSegmentGroup, segments: UrlSegment[], routes: Route[]): boolean {
+  return routes.some(
+      r => isEmptyPathRedirect(segmentGroup, segments, r) && getOutlet(r) !== PRIMARY_OUTLET);
 }
 
 function containsEmptyPathRedirects(
-    segmentGroup: UrlSegmentGroup, slicedSegments: UrlSegment[], routes: Route[]): boolean {
-  return routes.filter(r => emptyPathRedirect(segmentGroup, slicedSegments, r)).length > 0;
+    segmentGroup: UrlSegmentGroup, segments: UrlSegment[], routes: Route[]): boolean {
+  return routes.some(r => isEmptyPathRedirect(segmentGroup, segments, r));
 }
 
-function emptyPathRedirect(
-    segmentGroup: UrlSegmentGroup, slicedSegments: UrlSegment[], r: Route): boolean {
-  if ((segmentGroup.hasChildren() || slicedSegments.length > 0) && r.pathMatch === 'full') {
+function isEmptyPathRedirect(
+    segmentGroup: UrlSegmentGroup, segments: UrlSegment[], r: Route): boolean {
+  if ((segmentGroup.hasChildren() || segments.length > 0) && r.pathMatch === 'full') {
     return false;
   }
 
@@ -515,5 +535,5 @@ function emptyPathRedirect(
 }
 
 function getOutlet(route: Route): string {
-  return route.outlet ? route.outlet : PRIMARY_OUTLET;
+  return route.outlet || PRIMARY_OUTLET;
 }

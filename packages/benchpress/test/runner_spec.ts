@@ -8,21 +8,21 @@
 
 import {AsyncTestCompleter, describe, expect, inject, it} from '@angular/core/testing/src/testing_internal';
 
-import {Injector, Metric, Options, ReflectiveInjector, Runner, SampleDescription, SampleState, Sampler, Validator, WebDriverAdapter} from '../index';
+import {Injector, Metric, Options, Runner, SampleDescription, SampleState, Sampler, Validator, WebDriverAdapter} from '../index';
 
 export function main() {
   describe('runner', () => {
-    let injector: ReflectiveInjector;
+    let injector: Injector;
     let runner: Runner;
 
-    function createRunner(defaultProviders: any[] = null): Runner {
+    function createRunner(defaultProviders?: any[]): Runner {
       if (!defaultProviders) {
         defaultProviders = [];
       }
       runner = new Runner([
         defaultProviders, {
           provide: Sampler,
-          useFactory: (_injector: ReflectiveInjector) => {
+          useFactory: (_injector: Injector) => {
             injector = _injector;
             return new MockSampler();
           },
@@ -121,7 +121,7 @@ export function main() {
 
 class MockWebDriverAdapter extends WebDriverAdapter {
   executeScript(script: string): Promise<string> { return Promise.resolve('someUserAgent'); }
-  capabilities(): Promise<Map<string, any>> { return null; }
+  capabilities(): Promise<Map<string, any>> { return null !; }
 }
 
 class MockValidator extends Validator {
@@ -135,6 +135,6 @@ class MockMetric extends Metric {
 }
 
 class MockSampler extends Sampler {
-  constructor() { super(null, null, null, null, null, null, null); }
+  constructor() { super(null !, null !, null !, null !, null !, null !, null !); }
   sample(): Promise<SampleState> { return Promise.resolve(new SampleState([], [])); }
 }

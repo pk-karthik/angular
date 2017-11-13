@@ -8,11 +8,9 @@
 
 import {ElementRef} from '../linker/element_ref';
 import {QueryList} from '../linker/query_list';
-import {TemplateRef} from '../linker/template_ref';
-import {ViewContainerRef} from '../linker/view_container_ref';
 
-import {NodeDef, NodeFlags, QueryBindingDef, QueryBindingType, QueryDef, QueryValueType, Services, ViewData, asElementData, asProviderData, asQueryList} from './types';
-import {declaredViewContainer, filterQueryId, isEmbeddedView, viewParentEl} from './util';
+import {NodeDef, NodeFlags, QueryBindingDef, QueryBindingType, QueryDef, QueryValueType, ViewData, asElementData, asProviderData, asQueryList} from './types';
+import {declaredViewContainer, filterQueryId, isEmbeddedView} from './util';
 
 export function queryDef(
     flags: NodeFlags, id: number, bindings: {[propName: string]: QueryBindingType}): NodeDef {
@@ -24,28 +22,30 @@ export function queryDef(
 
   return {
     // will bet set by the view definition
-    index: undefined,
-    parent: undefined,
-    renderParent: undefined,
-    bindingIndex: undefined,
-    outputIndex: undefined,
+    nodeIndex: -1,
+    parent: null,
+    renderParent: null,
+    bindingIndex: -1,
+    outputIndex: -1,
     // regular values
-    flags,
+    // TODO(vicb): check
+    checkIndex: -1, flags,
     childFlags: 0,
     directChildFlags: 0,
     childMatchedQueries: 0,
-    ngContentIndex: undefined,
+    ngContentIndex: -1,
     matchedQueries: {},
     matchedQueryIds: 0,
     references: {},
     childCount: 0,
     bindings: [],
+    bindingFlags: 0,
     outputs: [],
-    element: undefined,
-    provider: undefined,
-    text: undefined,
+    element: null,
+    provider: null,
+    text: null,
     query: {id, filterId: filterQueryId(id), bindings: bindingDefs},
-    ngContent: undefined
+    ngContent: null
   };
 }
 
@@ -56,18 +56,18 @@ export function createQuery(): QueryList<any> {
 export function dirtyParentQueries(view: ViewData) {
   const queryIds = view.def.nodeMatchedQueries;
   while (view.parent && isEmbeddedView(view)) {
-    let tplDef = view.parentNodeDef;
+    let tplDef = view.parentNodeDef !;
     view = view.parent;
     // content queries
-    const end = tplDef.index + tplDef.childCount;
+    const end = tplDef.nodeIndex + tplDef.childCount;
     for (let i = 0; i <= end; i++) {
       const nodeDef = view.def.nodes[i];
       if ((nodeDef.flags & NodeFlags.TypeContentQuery) &&
           (nodeDef.flags & NodeFlags.DynamicQuery) &&
-          (nodeDef.query.filterId & queryIds) === nodeDef.query.filterId) {
+          (nodeDef.query !.filterId & queryIds) === nodeDef.query !.filterId) {
         asQueryList(view, i).setDirty();
       }
-      if ((nodeDef.flags & NodeFlags.TypeElement && i + nodeDef.childCount < tplDef.index) ||
+      if ((nodeDef.flags & NodeFlags.TypeElement && i + nodeDef.childCount < tplDef.nodeIndex) ||
           !(nodeDef.childFlags & NodeFlags.TypeContentQuery) ||
           !(nodeDef.childFlags & NodeFlags.DynamicQuery)) {
         // skip elements that don't contain the template element or no query.
@@ -90,23 +90,24 @@ export function dirtyParentQueries(view: ViewData) {
 }
 
 export function checkAndUpdateQuery(view: ViewData, nodeDef: NodeDef) {
-  const queryList = asQueryList(view, nodeDef.index);
+  const queryList = asQueryList(view, nodeDef.nodeIndex);
   if (!queryList.dirty) {
     return;
   }
   let directiveInstance: any;
-  let newValues: any[];
+  let newValues: any[] = undefined !;
   if (nodeDef.flags & NodeFlags.TypeContentQuery) {
-    const elementDef = nodeDef.parent.parent;
+    const elementDef = nodeDef.parent !.parent !;
     newValues = calcQueryValues(
-        view, elementDef.index, elementDef.index + elementDef.childCount, nodeDef.query, []);
-    directiveInstance = asProviderData(view, nodeDef.parent.index).instance;
+        view, elementDef.nodeIndex, elementDef.nodeIndex + elementDef.childCount, nodeDef.query !,
+        []);
+    directiveInstance = asProviderData(view, nodeDef.parent !.nodeIndex).instance;
   } else if (nodeDef.flags & NodeFlags.TypeViewQuery) {
-    newValues = calcQueryValues(view, 0, view.def.nodes.length - 1, nodeDef.query, []);
+    newValues = calcQueryValues(view, 0, view.def.nodes.length - 1, nodeDef.query !, []);
     directiveInstance = view.component;
   }
   queryList.reset(newValues);
-  const bindings = nodeDef.query.bindings;
+  const bindings = nodeDef.query !.bindings;
   let notify = false;
   for (let i = 0; i < bindings.length; i++) {
     const binding = bindings[i];
@@ -136,12 +137,18 @@ function calcQueryValues(
     if (valueType != null) {
       values.push(getQueryValue(view, nodeDef, valueType));
     }
-    if (nodeDef.flags & NodeFlags.TypeElement && nodeDef.element.template &&
-        (nodeDef.element.template.nodeMatchedQueries & queryDef.filterId) === queryDef.filterId) {
-      // check embedded views that were attached at the place of their template.
+    if (nodeDef.flags & NodeFlags.TypeElement && nodeDef.element !.template &&
+        (nodeDef.element !.template !.nodeMatchedQueries & queryDef.filterId) ===
+            queryDef.filterId) {
       const elementData = asElementData(view, i);
+      // check embedded views that were attached at the place of their template,
+      // but process child nodes first if some match the query (see issue #16568)
+      if ((nodeDef.childMatchedQueries & queryDef.filterId) === queryDef.filterId) {
+        calcQueryValues(view, i + 1, i + nodeDef.childCount, queryDef, values);
+        i += nodeDef.childCount;
+      }
       if (nodeDef.flags & NodeFlags.EmbeddedViews) {
-        const embeddedViews = elementData.viewContainer._embeddedViews;
+        const embeddedViews = elementData.viewContainer !._embeddedViews;
         for (let k = 0; k < embeddedViews.length; k++) {
           const embeddedView = embeddedViews[k];
           const dvc = declaredViewContainer(embeddedView);
@@ -170,24 +177,17 @@ export function getQueryValue(
     view: ViewData, nodeDef: NodeDef, queryValueType: QueryValueType): any {
   if (queryValueType != null) {
     // a match
-    let value: any;
     switch (queryValueType) {
       case QueryValueType.RenderElement:
-        value = asElementData(view, nodeDef.index).renderElement;
-        break;
+        return asElementData(view, nodeDef.nodeIndex).renderElement;
       case QueryValueType.ElementRef:
-        value = new ElementRef(asElementData(view, nodeDef.index).renderElement);
-        break;
+        return new ElementRef(asElementData(view, nodeDef.nodeIndex).renderElement);
       case QueryValueType.TemplateRef:
-        value = asElementData(view, nodeDef.index).template;
-        break;
+        return asElementData(view, nodeDef.nodeIndex).template;
       case QueryValueType.ViewContainerRef:
-        value = asElementData(view, nodeDef.index).viewContainer;
-        break;
+        return asElementData(view, nodeDef.nodeIndex).viewContainer;
       case QueryValueType.Provider:
-        value = asProviderData(view, nodeDef.index).instance;
-        break;
+        return asProviderData(view, nodeDef.nodeIndex).instance;
     }
-    return value;
   }
 }

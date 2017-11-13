@@ -6,9 +6,13 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {hasLifecycleHook} from '@angular/compiler/src/lifecycle_reflector';
+import {LifecycleHooks as Hooks, hasLifecycleHook as hasLifecycleHookImpl} from '@angular/compiler/src/lifecycle_reflector';
 import {SimpleChanges} from '@angular/core';
-import {LifecycleHooks as Hooks} from '@angular/core/src/metadata/lifecycle_hooks';
+import {JitReflector} from '@angular/platform-browser-dynamic/src/compiler_reflector';
+
+function hasLifecycleHook(hook: Hooks, directive: any): boolean {
+  return hasLifecycleHookImpl(new JitReflector(), hook, directive);
+}
 
 export function main() {
   describe('Create Directive', () => {

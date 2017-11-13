@@ -6,19 +6,21 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {EventEmitter} from '@angular/core';
 import {fakeAsync, tick} from '@angular/core/testing';
 import {describe, expect, it} from '@angular/core/testing/src/testing_internal';
-import {AbstractControl, FormArray, FormControl, FormGroup, Validators} from '@angular/forms';
+import {AbstractControl, AsyncValidatorFn, FormArray, FormControl, Validators} from '@angular/forms';
 import {Observable} from 'rxjs/Observable';
-
+import {of } from 'rxjs/observable/of';
+import {timer} from 'rxjs/observable/timer';
+import {first} from 'rxjs/operator/first';
+import {map} from 'rxjs/operator/map';
 import {normalizeAsyncValidator} from '../src/directives/normalize_validator';
-import {AsyncValidator} from '../src/directives/validators';
+import {AsyncValidator, ValidationErrors, ValidatorFn} from '../src/directives/validators';
 
 export function main() {
-  function validator(key: string, error: any) {
-    return function(c: AbstractControl) {
-      const r: {[k: string]: string} = {};
+  function validator(key: string, error: any): ValidatorFn {
+    return (c: AbstractControl) => {
+      const r: ValidationErrors = {};
       r[key] = error;
       return r;
     };
@@ -27,8 +29,7 @@ export function main() {
   class AsyncValidatorDirective implements AsyncValidator {
     constructor(private expected: string, private error: any) {}
 
-    validate(c: any): Observable < { [key: string]: any; }
-    > {
+    validate(c: any): Observable<ValidationErrors> {
       return Observable.create((obs: any) => {
         const error = this.expected !== c.value ? this.error : null;
         obs.next(error);
@@ -38,6 +39,93 @@ export function main() {
   }
 
   describe('Validators', () => {
+    describe('min', () => {
+      it('should not error on an empty string',
+         () => { expect(Validators.min(2)(new FormControl(''))).toBeNull(); });
+
+      it('should not error on null',
+         () => { expect(Validators.min(2)(new FormControl(null))).toBeNull(); });
+
+      it('should not error on undefined',
+         () => { expect(Validators.min(2)(new FormControl(undefined))).toBeNull(); });
+
+      it('should return null if NaN after parsing',
+         () => { expect(Validators.min(2)(new FormControl('a'))).toBeNull(); });
+
+      it('should return a validation error on small values', () => {
+        expect(Validators.min(2)(new FormControl(1))).toEqual({'min': {'min': 2, 'actual': 1}});
+      });
+
+      it('should return a validation error on small values converted from strings', () => {
+        expect(Validators.min(2)(new FormControl('1'))).toEqual({'min': {'min': 2, 'actual': '1'}});
+      });
+
+      it('should not error on big values',
+         () => { expect(Validators.min(2)(new FormControl(3))).toBeNull(); });
+
+      it('should not error on equal values',
+         () => { expect(Validators.min(2)(new FormControl(2))).toBeNull(); });
+
+      it('should not error on equal values when value is string',
+         () => { expect(Validators.min(2)(new FormControl('2'))).toBeNull(); });
+
+      it('should validate as expected when min value is a string', () => {
+        expect(Validators.min('2' as any)(new FormControl(1))).toEqual({
+          'min': {'min': '2', 'actual': 1}
+        });
+      });
+
+      it('should return null if min value is undefined',
+         () => { expect(Validators.min(undefined as any)(new FormControl(3))).toBeNull(); });
+
+      it('should return null if min value is null',
+         () => { expect(Validators.min(null as any)(new FormControl(3))).toBeNull(); });
+    });
+
+    describe('max', () => {
+      it('should not error on an empty string',
+         () => { expect(Validators.max(2)(new FormControl(''))).toBeNull(); });
+
+      it('should not error on null',
+         () => { expect(Validators.max(2)(new FormControl(null))).toBeNull(); });
+
+      it('should not error on undefined',
+         () => { expect(Validators.max(2)(new FormControl(undefined))).toBeNull(); });
+
+      it('should return null if NaN after parsing',
+         () => { expect(Validators.max(2)(new FormControl('aaa'))).toBeNull(); });
+
+      it('should return a validation error on big values', () => {
+        expect(Validators.max(2)(new FormControl(3))).toEqual({'max': {'max': 2, 'actual': 3}});
+      });
+
+      it('should return a validation error on big values converted from strings', () => {
+        expect(Validators.max(2)(new FormControl('3'))).toEqual({'max': {'max': 2, 'actual': '3'}});
+      });
+
+      it('should not error on small values',
+         () => { expect(Validators.max(2)(new FormControl(1))).toBeNull(); });
+
+      it('should not error on equal values',
+         () => { expect(Validators.max(2)(new FormControl(2))).toBeNull(); });
+
+      it('should not error on equal values when value is string',
+         () => { expect(Validators.max(2)(new FormControl('2'))).toBeNull(); });
+
+      it('should validate as expected when max value is a string', () => {
+        expect(Validators.max('2' as any)(new FormControl(3))).toEqual({
+          'max': {'max': '2', 'actual': 3}
+        });
+      });
+
+      it('should return null if max value is undefined',
+         () => { expect(Validators.max(undefined as any)(new FormControl(3))).toBeNull(); });
+
+      it('should return null if max value is null',
+         () => { expect(Validators.max(null as any)(new FormControl(3))).toBeNull(); });
+    });
+
+
     describe('required', () => {
       it('should error on an empty string',
          () => { expect(Validators.required(new FormControl(''))).toEqual({'required': true}); });
@@ -178,101 +266,173 @@ export function main() {
       });
 
       it('should not error on "null" pattern',
-         () => expect(Validators.pattern(null)(new FormControl('aaAA'))).toBeNull());
+         () => expect(Validators.pattern(null !)(new FormControl('aaAA'))).toBeNull());
 
       it('should not error on "undefined" pattern',
-         () => expect(Validators.pattern(undefined)(new FormControl('aaAA'))).toBeNull());
+         () => expect(Validators.pattern(undefined !)(new FormControl('aaAA'))).toBeNull());
     });
 
     describe('compose', () => {
       it('should return null when given null',
-         () => { expect(Validators.compose(null)).toBe(null); });
+         () => { expect(Validators.compose(null !)).toBe(null); });
 
       it('should collect errors from all the validators', () => {
-        const c = Validators.compose([validator('a', true), validator('b', true)]);
+        const c = Validators.compose([validator('a', true), validator('b', true)]) !;
         expect(c(new FormControl(''))).toEqual({'a': true, 'b': true});
       });
 
       it('should run validators left to right', () => {
-        const c = Validators.compose([validator('a', 1), validator('a', 2)]);
+        const c = Validators.compose([validator('a', 1), validator('a', 2)]) !;
         expect(c(new FormControl(''))).toEqual({'a': 2});
       });
 
       it('should return null when no errors', () => {
-        const c = Validators.compose([Validators.nullValidator, Validators.nullValidator]);
+        const c = Validators.compose([Validators.nullValidator, Validators.nullValidator]) !;
         expect(c(new FormControl(''))).toBeNull();
       });
 
       it('should ignore nulls', () => {
-        const c = Validators.compose([null, Validators.required]);
+        const c = Validators.compose([null !, Validators.required]) !;
         expect(c(new FormControl(''))).toEqual({'required': true});
       });
     });
 
     describe('composeAsync', () => {
-      function asyncValidator(expected: any /** TODO #9100 */, response: any /** TODO #9100 */) {
-        return (c: any /** TODO #9100 */) => {
-          const emitter = new EventEmitter();
-          const res = c.value != expected ? response : null;
-          Promise.resolve(null).then(() => {
-            emitter.emit(res);
-            // this is required because of a bug in ObservableWrapper
-            // where callComplete can fire before callEmit
-            // remove this one the bug is fixed
-            setTimeout(() => { emitter.complete(); }, 0);
-          });
 
-          return emitter;
-        };
-      }
+      describe('promises', () => {
+        function promiseValidator(response: {[key: string]: any}): AsyncValidatorFn {
+          return (c: AbstractControl) => {
+            const res = c.value != 'expected' ? response : null;
+            return Promise.resolve(res);
+          };
+        }
 
-      it('should return null when given null',
-         () => { expect(Validators.composeAsync(null)).toBeNull(); });
+        it('should return null when given null',
+           () => { expect(Validators.composeAsync(null !)).toBeNull(); });
 
-      it('should collect errors from all the validators', fakeAsync(() => {
-           const c = Validators.composeAsync([
-             asyncValidator('expected', {'one': true}), asyncValidator('expected', {'two': true})
-           ]);
+        it('should collect errors from all the validators', fakeAsync(() => {
+             const v = Validators.composeAsync(
+                 [promiseValidator({'one': true}), promiseValidator({'two': true})]) !;
 
-           let value: any /** TODO #9100 */ = null;
-           (<Promise<any>>c(new FormControl('invalid'))).then(v => value = v);
+             let errorMap: {[key: string]: any} = undefined !;
+             first.call(v(new FormControl('invalid')))
+                 .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+             tick();
 
-           tick(1);
+             expect(errorMap).toEqual({'one': true, 'two': true});
+           }));
 
-           expect(value).toEqual({'one': true, 'two': true});
-         }));
+        it('should normalize and evaluate async validator-directives correctly', fakeAsync(() => {
+             const v = Validators.composeAsync([normalizeAsyncValidator(
+                 new AsyncValidatorDirective('expected', {'one': true}))]) !;
 
-      it('should normalize and evaluate async validator-directives correctly', fakeAsync(() => {
-           const c = Validators.composeAsync(
-               [normalizeAsyncValidator(new AsyncValidatorDirective('expected', {'one': true}))]);
+             let errorMap: {[key: string]: any} = undefined !;
+             first.call(v(new FormControl('invalid')))
+                 .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+             tick();
 
-           let value: any = null;
-           c(new FormControl()).then((v: any) => value = v);
-           tick(1);
+             expect(errorMap).toEqual({'one': true});
+           }));
 
-           expect(value).toEqual({'one': true});
-         }));
+        it('should return null when no errors', fakeAsync(() => {
+             const v = Validators.composeAsync([promiseValidator({'one': true})]) !;
 
-      it('should return null when no errors', fakeAsync(() => {
-           const c = Validators.composeAsync([asyncValidator('expected', {'one': true})]);
+             let errorMap: {[key: string]: any} = undefined !;
+             first.call(v(new FormControl('expected')))
+                 .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+             tick();
 
-           let value: any /** TODO #9100 */ = null;
-           (<Promise<any>>c(new FormControl('expected'))).then(v => value = v);
-           tick(1);
+             expect(errorMap).toBeNull();
+           }));
 
-           expect(value).toBeNull();
-         }));
+        it('should ignore nulls', fakeAsync(() => {
+             const v = Validators.composeAsync([promiseValidator({'one': true}), null !]) !;
 
-      it('should ignore nulls', fakeAsync(() => {
-           const c = Validators.composeAsync([asyncValidator('expected', {'one': true}), null]);
+             let errorMap: {[key: string]: any} = undefined !;
+             first.call(v(new FormControl('invalid')))
+                 .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+             tick();
 
-           let value: any /** TODO #9100 */ = null;
-           (<Promise<any>>c(new FormControl('invalid'))).then(v => value = v);
+             expect(errorMap).toEqual({'one': true});
+           }));
+      });
 
-           tick(1);
+      describe('observables', () => {
+        function observableValidator(response: {[key: string]: any}): AsyncValidatorFn {
+          return (c: AbstractControl) => {
+            const res = c.value != 'expected' ? response : null;
+            return of (res);
+          };
+        }
 
-           expect(value).toEqual({'one': true});
-         }));
+        it('should return null when given null',
+           () => { expect(Validators.composeAsync(null !)).toBeNull(); });
+
+        it('should collect errors from all the validators', () => {
+          const v = Validators.composeAsync(
+              [observableValidator({'one': true}), observableValidator({'two': true})]) !;
+
+          let errorMap: {[key: string]: any} = undefined !;
+          first.call(v(new FormControl('invalid')))
+              .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+
+          expect(errorMap).toEqual({'one': true, 'two': true});
+        });
+
+        it('should normalize and evaluate async validator-directives correctly', () => {
+          const v = Validators.composeAsync(
+              [normalizeAsyncValidator(new AsyncValidatorDirective('expected', {'one': true}))]) !;
+
+          let errorMap: {[key: string]: any} = undefined !;
+          first.call(v(new FormControl('invalid')))
+              .subscribe((errors: {[key: string]: any}) => errorMap = errors) !;
+
+          expect(errorMap).toEqual({'one': true});
+        });
+
+        it('should return null when no errors', () => {
+          const v = Validators.composeAsync([observableValidator({'one': true})]) !;
+
+          let errorMap: {[key: string]: any} = undefined !;
+          first.call(v(new FormControl('expected')))
+              .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+
+          expect(errorMap).toBeNull();
+        });
+
+        it('should ignore nulls', () => {
+          const v = Validators.composeAsync([observableValidator({'one': true}), null !]) !;
+
+          let errorMap: {[key: string]: any} = undefined !;
+          first.call(v(new FormControl('invalid')))
+              .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+
+          expect(errorMap).toEqual({'one': true});
+        });
+
+        it('should wait for all validators before setting errors', fakeAsync(() => {
+             function getTimerObs(time: number, errorMap: {[key: string]: any}): AsyncValidatorFn {
+               return (c: AbstractControl) => { return map.call(timer(time), () => errorMap); };
+             }
+
+             const v = Validators.composeAsync(
+                 [getTimerObs(100, {one: true}), getTimerObs(200, {two: true})]) !;
+
+             let errorMap: {[key: string]: any} = undefined !;
+             first.call(v(new FormControl('invalid')))
+                 .subscribe((errors: {[key: string]: any}) => errorMap = errors);
+
+             tick(100);
+             expect(errorMap).not.toBeDefined(
+                 `Expected errors not to be set until all validators came back.`);
+
+             tick(100);
+             expect(errorMap).toEqual(
+                 {one: true, two: true}, `Expected errors to merge once all validators resolved.`);
+           }));
+
+      });
+
     });
   });
 }

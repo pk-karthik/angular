@@ -89,7 +89,7 @@ function publishRepo {
     git config user.name "${COMMITTER_USER_NAME}" && \
     git config user.email "${COMMITTER_USER_EMAIL}" && \
     git add --all && \
-    git commit -m "${COMMIT_MSG}" && \
+    git commit -m "${COMMIT_MSG}" --quiet && \
     git tag "${BUILD_VER}" && \
     git push origin "${BRANCH}" --tags --force
   )
@@ -101,7 +101,7 @@ function publishPackages {
   PKGS_DIST=$2
   BRANCH=$3
 
-  for dir in $PKGS_DIST/*/ dist/tools/@angular/tsc-wrapped
+  for dir in $PKGS_DIST/*/
   do
     COMPONENT="$(basename ${dir})"
 
@@ -129,7 +129,7 @@ function publishPackages {
   echo "Finished publishing build artifacts"
 }
 
-# See DEVELOPER.md for help
+# See docs/DEVELOPER.md for help
 CUR_BRANCH=${TRAVIS_BRANCH:-$(git symbolic-ref --short HEAD)}
 if [ $# -gt 0 ]; then
   ORG=$1

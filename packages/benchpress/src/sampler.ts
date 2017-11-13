@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Inject, Injectable} from '@angular/core';
+import {Inject, Injectable, StaticProvider} from '@angular/core';
 
 import {Options} from './common_options';
 import {MeasureValues} from './measure_values';
@@ -26,8 +26,12 @@ import {WebDriverAdapter} from './web_driver_adapter';
  */
 @Injectable()
 export class Sampler {
-  static PROVIDERS = [Sampler];
-
+  static PROVIDERS = <StaticProvider[]>[{
+    provide: Sampler,
+    deps: [
+      WebDriverAdapter, Metric, Reporter, Validator, Options.PREPARE, Options.EXECUTE, Options.NOW
+    ]
+  }];
   constructor(
       private _driver: WebDriverAdapter, private _metric: Metric, private _reporter: Reporter,
       private _validator: Validator, @Inject(Options.PREPARE) private _prepare: Function,
@@ -48,7 +52,7 @@ export class Sampler {
   }
 
   private _iterate(lastState: SampleState): Promise<SampleState> {
-    let resultPromise: Promise<SampleState>;
+    let resultPromise: Promise<SampleState|null>;
     if (this._prepare !== Options.NO_PREPARE) {
       resultPromise = this._driver.waitFor(this._prepare);
     } else {
@@ -76,5 +80,5 @@ export class Sampler {
 }
 
 export class SampleState {
-  constructor(public completeSample: MeasureValues[], public validSample: MeasureValues[]) {}
+  constructor(public completeSample: MeasureValues[], public validSample: MeasureValues[]|null) {}
 }

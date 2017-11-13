@@ -9,22 +9,13 @@
 import {ParseLocation, ParseSourceFile} from '@angular/compiler';
 import {StaticSymbol} from '@angular/compiler/src/aot/static_symbol';
 import * as o from '@angular/compiler/src/output/output_ast';
-import {ImportResolver} from '@angular/compiler/src/output/path_util';
 import {SourceMap} from '@angular/compiler/src/output/source_map';
 import {TypeScriptEmitter} from '@angular/compiler/src/output/ts_emitter';
 import {ParseSourceSpan} from '@angular/compiler/src/parse_util';
 
 import {extractSourceMap, originalPositionFor} from './source_map_util';
 
-const someModuleUrl = 'somePackage/somePath';
-
-class SimpleJsImportGenerator implements ImportResolver {
-  fileNameToModuleName(importedUrlStr: string, moduleUrlStr: string): string {
-    return importedUrlStr;
-  }
-  getImportAs(symbol: StaticSymbol): StaticSymbol { return null; }
-  getTypeArity(symbol: StaticSymbol): number /*|null*/ { return null; }
-}
+const someGenFilePath = 'somePackage/someGenFile';
 
 export function main() {
   // Not supported features of our OutputAst in TS:
@@ -32,21 +23,18 @@ export function main() {
   // - final fields
 
   describe('TypeScriptEmitter', () => {
-    let importResolver: ImportResolver;
     let emitter: TypeScriptEmitter;
     let someVar: o.ReadVarExpr;
 
     beforeEach(() => {
-      importResolver = new SimpleJsImportGenerator();
-      emitter = new TypeScriptEmitter(importResolver);
+      emitter = new TypeScriptEmitter();
       someVar = o.variable('someVar');
     });
 
-    function emitSourceMap(
-        stmt: o.Statement | o.Statement[], exportedVars: string[] = null): SourceMap {
+    function emitSourceMap(stmt: o.Statement | o.Statement[], preamble?: string): SourceMap {
       const stmts = Array.isArray(stmt) ? stmt : [stmt];
-      const source = emitter.emitStatements(someModuleUrl, stmts, exportedVars || []);
-      return extractSourceMap(source);
+      const source = emitter.emitStatements(someGenFilePath, stmts, preamble);
+      return extractSourceMap(source) !;
     }
 
     describe('source maps', () => {
@@ -56,11 +44,11 @@ export function main() {
         const endLocation = new ParseLocation(source, 7, 0, 6);
         const sourceSpan = new ParseSourceSpan(startLocation, endLocation);
         const someVar = o.variable('someVar', null, sourceSpan);
-        const sm = emitSourceMap(someVar.toStmt());
+        const sm = emitSourceMap(someVar.toStmt(), '/* MyPreamble \n */');
 
-        expect(sm.sources).toEqual(['in.js']);
-        expect(sm.sourcesContent).toEqual([';;;var']);
-        expect(originalPositionFor(sm, {line: 1, column: 0}))
+        expect(sm.sources).toEqual([someGenFilePath, 'in.js']);
+        expect(sm.sourcesContent).toEqual([' ', ';;;var']);
+        expect(originalPositionFor(sm, {line: 3, column: 0}))
             .toEqual({line: 1, column: 3, source: 'in.js'});
       });
     });

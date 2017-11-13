@@ -6,14 +6,10 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export const MODULE_SUFFIX = '';
+import * as o from './output/output_ast';
+import {ParseError} from './parse_util';
 
-const CAMEL_CASE_REGEXP = /([A-Z])/g;
 const DASH_CASE_REGEXP = /-+([a-z0-9])/g;
-
-export function camelCaseToDashCase(input: string): string {
-  return input.replace(CAMEL_CASE_REGEXP, (...m: any[]) => '-' + m[1].toLowerCase());
-}
 
 export function dashCaseToCamelCase(input: string): string {
   return input.replace(DASH_CASE_REGEXP, (...m: any[]) => m[1].toUpperCase());
@@ -50,6 +46,14 @@ export function visitValue(value: any, visitor: ValueVisitor, context: any): any
   return visitor.visitOther(value, context);
 }
 
+export function isDefined(val: any): boolean {
+  return val !== null && val !== undefined;
+}
+
+export function noUndefined<T>(val: T | undefined): T {
+  return val === undefined ? null ! : val;
+}
+
 export interface ValueVisitor {
   visitArray(arr: any[], context: any): any;
   visitStringMap(map: {[key: string]: any}, context: any): any;
@@ -70,24 +74,38 @@ export class ValueTransformer implements ValueVisitor {
   visitOther(value: any, context: any): any { return value; }
 }
 
-export class SyncAsyncResult<T> {
-  constructor(public syncResult: T, public asyncResult: Promise<T> = null) {
-    if (!asyncResult) {
-      this.asyncResult = Promise.resolve(syncResult);
-    }
-  }
-}
+export type SyncAsync<T> = T | Promise<T>;
 
-export function syntaxError(msg: string): Error {
+export const SyncAsync = {
+  assertSync: <T>(value: SyncAsync<T>): T => {
+    if (isPromise(value)) {
+      throw new Error(`Illegal state: value cannot be a promise`);
+    }
+    return value;
+  },
+  then: <T, R>(value: SyncAsync<T>, cb: (value: T) => R | Promise<R>| SyncAsync<R>):
+            SyncAsync<R> => { return isPromise(value) ? value.then(cb) : cb(value);},
+  all: <T>(syncAsyncValues: SyncAsync<T>[]): SyncAsync<T[]> => {
+    return syncAsyncValues.some(isPromise) ? Promise.all(syncAsyncValues) : syncAsyncValues as T[];
+  }
+};
+
+export function syntaxError(msg: string, parseErrors?: ParseError[]): Error {
   const error = Error(msg);
   (error as any)[ERROR_SYNTAX_ERROR] = true;
+  if (parseErrors) (error as any)[ERROR_PARSE_ERRORS] = parseErrors;
   return error;
 }
 
 const ERROR_SYNTAX_ERROR = 'ngSyntaxError';
+const ERROR_PARSE_ERRORS = 'ngParseErrors';
 
 export function isSyntaxError(error: Error): boolean {
   return (error as any)[ERROR_SYNTAX_ERROR];
+}
+
+export function getParseErrors(error: Error): ParseError[] {
+  return (error as any)[ERROR_PARSE_ERRORS] || [];
 }
 
 export function escapeRegExp(s: string): string {
@@ -129,4 +147,79 @@ export function utf8Encode(str: string): string {
   }
 
   return encoded;
+}
+
+export interface OutputContext {
+  genFilePath: string;
+  statements: o.Statement[];
+  importExpr(reference: any, typeParams?: o.Type[]|null): o.Expression;
+}
+
+export function stringify(token: any): string {
+  if (typeof token === 'string') {
+    return token;
+  }
+
+  if (token instanceof Array) {
+    return '[' + token.map(stringify).join(', ') + ']';
+  }
+
+  if (token == null) {
+    return '' + token;
+  }
+
+  if (token.overriddenName) {
+    return `${token.overriddenName}`;
+  }
+
+  if (token.name) {
+    return `${token.name}`;
+  }
+
+  const res = token.toString();
+
+  if (res == null) {
+    return '' + res;
+  }
+
+  const newLineIndex = res.indexOf('\n');
+  return newLineIndex === -1 ? res : res.substring(0, newLineIndex);
+}
+
+/**
+ * Lazily retrieves the reference value from a forwardRef.
+ */
+export function resolveForwardRef(type: any): any {
+  if (typeof type === 'function' && type.hasOwnProperty('__forward_ref__')) {
+    return type();
+  } else {
+    return type;
+  }
+}
+
+/**
+ * Determine if the argument is shaped like a Promise
+ */
+export function isPromise(obj: any): obj is Promise<any> {
+  // allow any Promise/A+ compliant thenable.
+  // It's up to the caller to ensure that obj.then conforms to the spec
+  return !!obj && typeof obj.then === 'function';
+}
+
+export class Version {
+  public readonly major: string;
+  public readonly minor: string;
+  public readonly patch: string;
+
+  constructor(public full: string) {
+    const splits = full.split('.');
+    this.major = splits[0];
+    this.minor = splits[1];
+    this.patch = splits.slice(2).join('.');
+  }
+}
+
+export interface Console {
+  log(message: string): void;
+  warn(message: string): void;
 }

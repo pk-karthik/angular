@@ -11,14 +11,16 @@ import {ParseError, ParseSourceSpan} from '../parse_util';
 import * as html from './ast';
 import {DEFAULT_INTERPOLATION_CONFIG, InterpolationConfig} from './interpolation_config';
 import * as lex from './lexer';
-import {TagDefinition, getNsPrefix, mergeNsAndName} from './tags';
+import {TagDefinition, getNsPrefix, isNgContainer, mergeNsAndName} from './tags';
 
 export class TreeError extends ParseError {
-  static create(elementName: string, span: ParseSourceSpan, msg: string): TreeError {
+  static create(elementName: string|null, span: ParseSourceSpan, msg: string): TreeError {
     return new TreeError(elementName, span, msg);
   }
 
-  constructor(public elementName: string, span: ParseSourceSpan, msg: string) { super(span, msg); }
+  constructor(public elementName: string|null, span: ParseSourceSpan, msg: string) {
+    super(span, msg);
+  }
 }
 
 export class ParseTreeResult {
@@ -93,7 +95,7 @@ class _TreeBuilder {
     return prev;
   }
 
-  private _advanceIf(type: lex.TokenType): lex.Token {
+  private _advanceIf(type: lex.TokenType): lex.Token|null {
     if (this._peek.type === type) {
       return this._advance();
     }
@@ -138,7 +140,7 @@ class _TreeBuilder {
     this._advance();
   }
 
-  private _parseExpansionCase(): html.ExpansionCase {
+  private _parseExpansionCase(): html.ExpansionCase|null {
     const value = this._advance();
 
     // read {
@@ -170,7 +172,7 @@ class _TreeBuilder {
         value.parts[0], parsedExp.rootNodes, sourceSpan, value.sourceSpan, expSourceSpan);
   }
 
-  private _collectExpansionExpTokens(start: lex.Token): lex.Token[] {
+  private _collectExpansionExpTokens(start: lex.Token): lex.Token[]|null {
     const exp: lex.Token[] = [];
     const expansionFormStack = [lex.TokenType.EXPANSION_CASE_EXP_START];
 
@@ -228,12 +230,9 @@ class _TreeBuilder {
   }
 
   private _closeVoidElement(): void {
-    if (this._elementStack.length > 0) {
-      const el = this._elementStack[this._elementStack.length - 1];
-
-      if (this.getTagDefinition(el.name).isVoid) {
-        this._elementStack.pop();
-      }
+    const el = this._getParentElement();
+    if (el && this.getTagDefinition(el.name).isVoid) {
+      this._elementStack.pop();
     }
   }
 
@@ -263,7 +262,7 @@ class _TreeBuilder {
     }
     const end = this._peek.sourceSpan.start;
     const span = new ParseSourceSpan(startTagToken.sourceSpan.start, end);
-    const el = new html.Element(fullName, attrs, [], span, span, null);
+    const el = new html.Element(fullName, attrs, [], span, span, undefined);
     this._pushElement(el);
     if (selfClosing) {
       this._popElement(fullName);
@@ -272,11 +271,10 @@ class _TreeBuilder {
   }
 
   private _pushElement(el: html.Element) {
-    if (this._elementStack.length > 0) {
-      const parentEl = this._elementStack[this._elementStack.length - 1];
-      if (this.getTagDefinition(parentEl.name).isClosedByChild(el.name)) {
-        this._elementStack.pop();
-      }
+    const parentEl = this._getParentElement();
+
+    if (parentEl && this.getTagDefinition(parentEl.name).isClosedByChild(el.name)) {
+      this._elementStack.pop();
     }
 
     const tagDef = this.getTagDefinition(el.name);
@@ -297,7 +295,7 @@ class _TreeBuilder {
         endTagToken.parts[0], endTagToken.parts[1], this._getParentElement());
 
     if (this._getParentElement()) {
-      this._getParentElement().endSourceSpan = endTagToken.sourceSpan;
+      this._getParentElement() !.endSourceSpan = endTagToken.sourceSpan;
     }
 
     if (this.getTagDefinition(fullName).isVoid) {
@@ -330,7 +328,7 @@ class _TreeBuilder {
     const fullName = mergeNsAndName(attrName.parts[0], attrName.parts[1]);
     let end = attrName.sourceSpan.end;
     let value = '';
-    let valueSpan: ParseSourceSpan;
+    let valueSpan: ParseSourceSpan = undefined !;
     if (this._peek.type === lex.TokenType.ATTR_VALUE) {
       const valueToken = this._advance();
       value = valueToken.parts[0];
@@ -341,7 +339,7 @@ class _TreeBuilder {
         fullName, value, new ParseSourceSpan(attrName.sourceSpan.start, end), valueSpan);
   }
 
-  private _getParentElement(): html.Element {
+  private _getParentElement(): html.Element|null {
     return this._elementStack.length > 0 ? this._elementStack[this._elementStack.length - 1] : null;
   }
 
@@ -350,17 +348,18 @@ class _TreeBuilder {
    *
    * `<ng-container>` elements are skipped as they are not rendered as DOM element.
    */
-  private _getParentElementSkippingContainers(): {parent: html.Element, container: html.Element} {
-    let container: html.Element = null;
+  private _getParentElementSkippingContainers():
+      {parent: html.Element | null, container: html.Element|null} {
+    let container: html.Element|null = null;
 
     for (let i = this._elementStack.length - 1; i >= 0; i--) {
-      if (this._elementStack[i].name !== 'ng-container') {
+      if (!isNgContainer(this._elementStack[i].name)) {
         return {parent: this._elementStack[i], container};
       }
       container = this._elementStack[i];
     }
 
-    return {parent: this._elementStack[this._elementStack.length - 1], container};
+    return {parent: null, container};
   }
 
   private _addToParent(node: html.Node) {
@@ -380,7 +379,7 @@ class _TreeBuilder {
    * @internal
    */
   private _insertBeforeContainer(
-      parent: html.Element, container: html.Element, node: html.Element) {
+      parent: html.Element, container: html.Element|null, node: html.Element) {
     if (!container) {
       this._addToParent(node);
       this._elementStack.push(node);
@@ -397,10 +396,10 @@ class _TreeBuilder {
     }
   }
 
-  private _getElementFullName(prefix: string, localName: string, parentElement: html.Element):
+  private _getElementFullName(prefix: string, localName: string, parentElement: html.Element|null):
       string {
     if (prefix == null) {
-      prefix = this.getTagDefinition(localName).implicitNamespacePrefix;
+      prefix = this.getTagDefinition(localName).implicitNamespacePrefix !;
       if (prefix == null && parentElement != null) {
         prefix = getNsPrefix(parentElement.name);
       }

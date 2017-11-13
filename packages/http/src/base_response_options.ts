@@ -39,33 +39,34 @@ import {ResponseOptionsArgs} from './interfaces';
  * console.log('res.json():', res.json()); // Object {name: "Jeff"}
  * ```
  *
- * @experimental
+ * @deprecated use @angular/common/http instead
  */
 export class ResponseOptions {
   // TODO: FormData | Blob
   /**
    * String, Object, ArrayBuffer or Blob representing the body of the {@link Response}.
    */
-  body: string|Object|ArrayBuffer|Blob;
+  body: string|Object|ArrayBuffer|Blob|null;
   /**
    * Http {@link http://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html status code}
    * associated with the response.
    */
-  status: number;
+  status: number|null;
   /**
    * Response {@link Headers headers}
    */
-  headers: Headers;
+  headers: Headers|null;
   /**
    * @internal
    */
-  statusText: string;
+  statusText: string|null;
   /**
    * @internal
    */
-  type: ResponseType;
-  url: string;
-  constructor({body, status, headers, statusText, type, url}: ResponseOptionsArgs = {}) {
+  type: ResponseType|null;
+  url: string|null;
+  constructor(opts: ResponseOptionsArgs = {}) {
+    const {body, status, headers, statusText, type, url} = opts;
     this.body = body != null ? body : null;
     this.status = status != null ? status : null;
     this.headers = headers != null ? headers : null;
@@ -155,7 +156,7 @@ export class ResponseOptions {
  * console.log('res.text():', res.text()); // Angular;
  * ```
  *
- * @experimental
+ * @deprecated use @angular/common/http instead
  */
 @Injectable()
 export class BaseResponseOptions extends ResponseOptions {

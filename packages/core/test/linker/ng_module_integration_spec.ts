@@ -11,7 +11,7 @@ import {Console} from '@angular/core/src/console';
 import {ComponentFixture, TestBed, inject} from '@angular/core/testing';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
 
-import {NgModuleInjector} from '../../src/linker/ng_module_factory';
+import {InternalNgModuleRef} from '../../src/linker/ng_module_factory';
 import {clearModulesForTest} from '../../src/linker/ng_module_factory_loader';
 import {stringify} from '../../src/util';
 
@@ -125,18 +125,19 @@ function declareTests({useJit}: {useJit: boolean}) {
       injector = _injector;
     }));
 
-    function createModule<T>(moduleType: Type<T>, parentInjector: Injector = null): NgModuleRef<T> {
-      return compiler.compileModuleSync(moduleType).create(parentInjector);
+    function createModule<T>(
+        moduleType: Type<T>, parentInjector?: Injector | null): NgModuleRef<T> {
+      return compiler.compileModuleSync(moduleType).create(parentInjector || null);
     }
 
     function createComp<T>(compType: Type<T>, moduleType: Type<any>): ComponentFixture<T> {
       const ngModule = createModule(moduleType, injector);
 
-      const cf = ngModule.componentFactoryResolver.resolveComponentFactory(compType);
+      const cf = ngModule.componentFactoryResolver.resolveComponentFactory(compType) !;
 
       const comp = cf.create(Injector.NULL);
 
-      return new ComponentFixture(comp, null, false);
+      return new ComponentFixture(comp, null !, false);
     }
 
     describe('errors', () => {
@@ -291,7 +292,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         }
 
         const ngModule = createModule(SomeModule);
-        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp).componentType)
+        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp) !.componentType)
             .toBe(SomeComp);
         expect(ngModule.injector.get(ComponentFactoryResolver)
                    .resolveComponentFactory(SomeComp)
@@ -341,7 +342,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         }
 
         const ngModule = createModule(SomeModule);
-        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp).componentType)
+        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp) !.componentType)
             .toBe(SomeComp);
         expect(ngModule.injector.get(ComponentFactoryResolver)
                    .resolveComponentFactory(SomeComp)
@@ -359,7 +360,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         }
 
         const ngModule = createModule(SomeModule);
-        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp).componentType)
+        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp) !.componentType)
             .toBe(SomeComp);
         expect(ngModule.injector.get(ComponentFactoryResolver)
                    .resolveComponentFactory(SomeComp)
@@ -377,7 +378,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         }
 
         const ngModule = createModule(SomeModule);
-        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp).componentType)
+        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp) !.componentType)
             .toBe(SomeComp);
         expect(ngModule.injector.get(ComponentFactoryResolver)
                    .resolveComponentFactory(SomeComp)
@@ -394,7 +395,7 @@ function declareTests({useJit}: {useJit: boolean}) {
         }
 
         const ngModule = createModule(SomeModule);
-        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp).componentType)
+        expect(ngModule.componentFactoryResolver.resolveComponentFactory(SomeComp) !.componentType)
             .toBe(SomeComp);
       });
 
@@ -403,9 +404,9 @@ function declareTests({useJit}: {useJit: boolean}) {
         class SomeModule {
         }
 
-        const ngModule = <NgModuleInjector<any>>createModule(SomeModule);
-        expect(ngModule.bootstrapFactories.length).toBe(1);
-        expect(ngModule.bootstrapFactories[0].componentType).toBe(SomeComp);
+        const ngModule = <InternalNgModuleRef<any>>createModule(SomeModule);
+        expect(ngModule._bootstrapComponents.length).toBe(1);
+        expect(ngModule._bootstrapComponents[0]).toBe(SomeComp);
       });
 
     });
@@ -605,7 +606,7 @@ function declareTests({useJit}: {useJit: boolean}) {
       let moduleType: any = null;
 
 
-      function createInjector(providers: Provider[], parent: Injector = null): Injector {
+      function createInjector(providers: Provider[], parent?: Injector | null): Injector {
         @NgModule({providers: providers})
         class SomeModule {
         }
@@ -719,7 +720,7 @@ function declareTests({useJit}: {useJit: boolean}) {
 
       it('should throw when the aliased provider does not exist', () => {
         const injector = createInjector([{provide: 'car', useExisting: SportsCar}]);
-        const e = `No provider for ${stringify(SportsCar)}!`;
+        const e = `NullInjectorError: No provider for ${stringify(SportsCar)}!`;
         expect(() => injector.get('car')).toThrowError(e);
       });
 
@@ -786,9 +787,108 @@ function declareTests({useJit}: {useJit: boolean}) {
         expect(child.get(Injector)).toBe(child);
       });
 
+      it('should provide undefined', () => {
+        let factoryCounter = 0;
+
+        const injector = createInjector([{
+          provide: 'token',
+          useFactory: () => {
+            factoryCounter++;
+            return undefined;
+          }
+        }]);
+
+        expect(injector.get('token')).toBeUndefined();
+        expect(injector.get('token')).toBeUndefined();
+        expect(factoryCounter).toBe(1);
+      });
+
+      describe('injecting lazy providers into an eager provider via Injector.get', () => {
+
+        it('should inject providers that were declared before it', () => {
+          @NgModule({
+            providers: [
+              {provide: 'lazy', useFactory: () => 'lazyValue'},
+              {
+                provide: 'eager',
+                useFactory: (i: Injector) => `eagerValue: ${i.get('lazy')}`,
+                deps: [Injector]
+              },
+            ]
+          })
+          class MyModule {
+            // NgModule is eager, which makes all of its deps eager
+            constructor(@Inject('eager') eager: any) {}
+          }
+
+          expect(createModule(MyModule).injector.get('eager')).toBe('eagerValue: lazyValue');
+        });
+
+        it('should inject providers that were declared after it', () => {
+          @NgModule({
+            providers: [
+              {
+                provide: 'eager',
+                useFactory: (i: Injector) => `eagerValue: ${i.get('lazy')}`,
+                deps: [Injector]
+              },
+              {provide: 'lazy', useFactory: () => 'lazyValue'},
+            ]
+          })
+          class MyModule {
+            // NgModule is eager, which makes all of its deps eager
+            constructor(@Inject('eager') eager: any) {}
+          }
+
+          expect(createModule(MyModule).injector.get('eager')).toBe('eagerValue: lazyValue');
+        });
+      });
+
+      describe('injecting eager providers into an eager provider via Injector.get', () => {
+
+        it('should inject providers that were declared before it', () => {
+          @NgModule({
+            providers: [
+              {provide: 'eager1', useFactory: () => 'v1'},
+              {
+                provide: 'eager2',
+                useFactory: (i: Injector) => `v2: ${i.get('eager1')}`,
+                deps: [Injector]
+              },
+            ]
+          })
+          class MyModule {
+            // NgModule is eager, which makes all of its deps eager
+            constructor(@Inject('eager1') eager1: any, @Inject('eager2') eager2: any) {}
+          }
+
+          expect(createModule(MyModule).injector.get('eager2')).toBe('v2: v1');
+        });
+
+        it('should inject providers that were declared after it', () => {
+          @NgModule({
+            providers: [
+              {
+                provide: 'eager1',
+                useFactory: (i: Injector) => `v1: ${i.get('eager2')}`,
+                deps: [Injector]
+              },
+              {provide: 'eager2', useFactory: () => 'v2'},
+            ]
+          })
+          class MyModule {
+            // NgModule is eager, which makes all of its deps eager
+            constructor(@Inject('eager1') eager1: any, @Inject('eager2') eager2: any) {}
+          }
+
+          expect(createModule(MyModule).injector.get('eager1')).toBe('v1: v2');
+        });
+      });
+
       it('should throw when no provider defined', () => {
         const injector = createInjector([]);
-        expect(() => injector.get('NonExisting')).toThrowError('No provider for NonExisting!');
+        expect(() => injector.get('NonExisting'))
+            .toThrowError('NullInjectorError: No provider for NonExisting!');
       });
 
       it('should throw when trying to instantiate a cyclic dependency', () => {

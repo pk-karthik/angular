@@ -12,12 +12,11 @@ export enum TagContentType {
   PARSABLE_DATA
 }
 
-// TODO(vicb): read-only when TS supports it
 export interface TagDefinition {
   closedByParent: boolean;
   requiredParents: {[key: string]: boolean};
   parentToAdd: string;
-  implicitNamespacePrefix: string;
+  implicitNamespacePrefix: string|null;
   contentType: TagContentType;
   isVoid: boolean;
   ignoreFirstLf: boolean;
@@ -28,7 +27,7 @@ export interface TagDefinition {
   isClosedByChild(name: string): boolean;
 }
 
-export function splitNsName(elementName: string): [string, string] {
+export function splitNsName(elementName: string): [string | null, string] {
   if (elementName[0] != ':') {
     return [null, elementName];
   }
@@ -42,7 +41,24 @@ export function splitNsName(elementName: string): [string, string] {
   return [elementName.slice(1, colonIndex), elementName.slice(colonIndex + 1)];
 }
 
-export function getNsPrefix(fullName: string): string {
+// `<ng-container>` tags work the same regardless the namespace
+export function isNgContainer(tagName: string): boolean {
+  return splitNsName(tagName)[1] === 'ng-container';
+}
+
+// `<ng-content>` tags work the same regardless the namespace
+export function isNgContent(tagName: string): boolean {
+  return splitNsName(tagName)[1] === 'ng-content';
+}
+
+// `<ng-template>` tags work the same regardless the namespace
+export function isNgTemplate(tagName: string): boolean {
+  return splitNsName(tagName)[1] === 'ng-template';
+}
+
+export function getNsPrefix(fullName: string): string;
+export function getNsPrefix(fullName: null): null;
+export function getNsPrefix(fullName: string | null): string|null {
   return fullName === null ? null : splitNsName(fullName)[0];
 }
 
@@ -53,7 +69,9 @@ export function mergeNsAndName(prefix: string, localName: string): string {
 // see http://www.w3.org/TR/html51/syntax.html#named-character-references
 // see https://html.spec.whatwg.org/multipage/entities.json
 // This list is not exhaustive to keep the compiler footprint low.
-// The `&#123;` / `&#x1ab;` syntax should be used when the named character reference does not exist.
+// The `&#123;` / `&#x1ab;` syntax should be used when the named character reference does not
+// exist.
+
 export const NAMED_ENTITIES: {[k: string]: string} = {
   'Aacute': '\u00C1',
   'aacute': '\u00E1',
@@ -308,3 +326,9 @@ export const NAMED_ENTITIES: {[k: string]: string} = {
   'zwj': '\u200D',
   'zwnj': '\u200C',
 };
+
+// The &ngsp; pseudo-entity is denoting a space. see:
+// https://github.com/dart-lang/angular/blob/0bb611387d29d65b5af7f9d2515ab571fd3fbee4/_tests/test/compiler/preserve_whitespace_test.dart
+export const NGSP_UNICODE = '\uE500';
+
+NAMED_ENTITIES['ngsp'] = NGSP_UNICODE;

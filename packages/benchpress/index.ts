@@ -6,10 +6,10 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-// Must be imported first, because angular2 decorators throws on load.
+// Must be imported first, because Angular decorators throw on load.
 import 'reflect-metadata';
 
-export {InjectionToken, Injector, Provider, ReflectiveInjector} from '@angular/core';
+export {InjectionToken, Injector, Provider, ReflectiveInjector, StaticProvider} from '@angular/core';
 export {Options} from './src/common_options';
 export {MeasureValues} from './src/measure_values';
 export {Metric} from './src/metric';

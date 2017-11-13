@@ -7,15 +7,18 @@
  */
 
 import {Injector, Pipe} from '@angular/core';
-import {beforeEach, describe, expect, inject, it} from '@angular/core/testing/src/testing_internal';
+import {inject} from '@angular/core/testing';
+import {JitReflector} from '@angular/platform-browser-dynamic/src/compiler_reflector';
+
 import {MockPipeResolver} from '../testing';
 
 export function main() {
   describe('MockPipeResolver', () => {
     let pipeResolver: MockPipeResolver;
 
-    beforeEach(inject(
-        [Injector], (injector: Injector) => { pipeResolver = new MockPipeResolver(injector); }));
+    beforeEach(inject([Injector], (injector: Injector) => {
+      pipeResolver = new MockPipeResolver(new JitReflector());
+    }));
 
     describe('Pipe overriding', () => {
       it('should fallback to the default PipeResolver when templates are not overridden', () => {

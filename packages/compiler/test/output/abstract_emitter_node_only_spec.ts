@@ -18,14 +18,14 @@ export function main() {
       const fileB = new ParseSourceFile('b0b1b2b3b4b5b6b7b8b9', 'b.js');
       let ctx: EmitterVisitorContext;
 
-      beforeEach(() => { ctx = EmitterVisitorContext.createRoot([]); });
+      beforeEach(() => { ctx = EmitterVisitorContext.createRoot(); });
 
       it('should add source files to the source map', () => {
         ctx.print(createSourceSpan(fileA, 0), 'o0');
         ctx.print(createSourceSpan(fileA, 1), 'o1');
         ctx.print(createSourceSpan(fileB, 0), 'o2');
         ctx.print(createSourceSpan(fileB, 1), 'o3');
-        const sm = ctx.toSourceMapGenerator('o.js').toJSON();
+        const sm = ctx.toSourceMapGenerator('o.ts').toJSON() !;
         expect(sm.sources).toEqual([fileA.url, fileB.url]);
         expect(sm.sourcesContent).toEqual([fileA.content, fileB.content]);
       });
@@ -43,7 +43,7 @@ export function main() {
       it('should be able to shift the content', () => {
         ctx.print(createSourceSpan(fileA, 0), 'fileA-0');
 
-        const sm = ctx.toSourceMapGenerator(null, 10).toJSON();
+        const sm = ctx.toSourceMapGenerator('o.ts', 10).toJSON() !;
         expect(originalPositionFor(sm, {line: 11, column: 0})).toEqual({
           line: 1,
           column: 0,
@@ -51,13 +51,23 @@ export function main() {
         });
       });
 
-      it('should not map leading segment without span', () => {
+      it('should use the default source file for the first character', () => {
+        ctx.print(null, 'fileA-0');
+        expectMap(ctx, 0, 0, 'o.ts', 0, 0);
+      });
+
+      it('should use an explicit mapping for the first character', () => {
+        ctx.print(createSourceSpan(fileA, 0), 'fileA-0');
+        expectMap(ctx, 0, 0, 'a.js', 0, 0);
+      });
+
+      it('should map leading segment without span', () => {
         ctx.print(null, '....');
         ctx.print(createSourceSpan(fileA, 0), 'fileA-0');
 
-        expectMap(ctx, 0, 0);
+        expectMap(ctx, 0, 0, 'o.ts', 0, 0);
         expectMap(ctx, 0, 4, 'a.js', 0, 0);
-        expect(nbSegmentsPerLine(ctx)).toEqual([1]);
+        expect(nbSegmentsPerLine(ctx)).toEqual([2]);
       });
 
       it('should handle indent', () => {
@@ -68,7 +78,7 @@ export function main() {
         ctx.decIndent();
         ctx.println(createSourceSpan(fileA, 2), 'fileA-2');
 
-        expectMap(ctx, 0, 0);
+        expectMap(ctx, 0, 0, 'o.ts', 0, 0);
         expectMap(ctx, 0, 2, 'a.js', 0, 0);
         expectMap(ctx, 1, 0);
         expectMap(ctx, 1, 2);
@@ -76,7 +86,7 @@ export function main() {
         expectMap(ctx, 2, 0);
         expectMap(ctx, 2, 2, 'a.js', 0, 4);
 
-        expect(nbSegmentsPerLine(ctx)).toEqual([1, 1, 1]);
+        expect(nbSegmentsPerLine(ctx)).toEqual([2, 1, 1]);
       });
 
       it('should coalesce identical span', () => {
@@ -101,9 +111,9 @@ export function main() {
 // All lines / columns indexes are 0-based
 // Note: source-map line indexes are 1-based, column 0-based
 function expectMap(
-    ctx: EmitterVisitorContext, genLine: number, genCol: number, source: string = null,
-    srcLine: number = null, srcCol: number = null) {
-  const sm = ctx.toSourceMapGenerator().toJSON();
+    ctx: EmitterVisitorContext, genLine: number, genCol: number, source: string | null = null,
+    srcLine: number | null = null, srcCol: number | null = null) {
+  const sm = ctx.toSourceMapGenerator('o.ts').toJSON() !;
   const genPosition = {line: genLine + 1, column: genCol};
   const origPosition = originalPositionFor(sm, genPosition);
   expect(origPosition.source).toEqual(source);
@@ -113,7 +123,7 @@ function expectMap(
 
 // returns the number of segments per line
 function nbSegmentsPerLine(ctx: EmitterVisitorContext) {
-  const sm = ctx.toSourceMapGenerator().toJSON();
+  const sm = ctx.toSourceMapGenerator('o.ts').toJSON() !;
   const lines = sm.mappings.split(';');
   return lines.map(l => {
     const m = l.match(/,/g);

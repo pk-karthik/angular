@@ -99,8 +99,8 @@ export const Renderer2Interceptor = new InjectionToken<Renderer2[]>('Renderer2In
  *
  * Use this service to bypass Angular's templating and make custom UI changes that can't be
  * expressed declaratively. For example if you need to set a property or an attribute whose name is
- * not statically known, use {@link #setElementProperty} or {@link #setElementAttribute}
- * respectively.
+ * not statically known, use {@link Renderer#setElementProperty setElementProperty} or
+ * {@link Renderer#setElementAttribute setElementAttribute} respectively.
  *
  * If you are implementing a custom renderer, you must implement this interface.
  *
@@ -126,7 +126,10 @@ export interface RendererType2 {
  * @experimental
  */
 export abstract class RendererFactory2 {
-  abstract createRenderer(hostElement: any, type: RendererType2): Renderer2;
+  abstract createRenderer(hostElement: any, type: RendererType2|null): Renderer2;
+  abstract begin?(): void;
+  abstract end?(): void;
+  abstract whenRenderingDone?(): Promise<any>;
 }
 
 /**
@@ -148,7 +151,7 @@ export abstract class Renderer2 {
   abstract get data(): {[key: string]: any};
 
   abstract destroy(): void;
-  abstract createElement(name: string, namespace?: string): any;
+  abstract createElement(name: string, namespace?: string|null): any;
   abstract createComment(value: string): any;
   abstract createText(value: string): any;
   /**
@@ -156,7 +159,7 @@ export abstract class Renderer2 {
    * in which case the view engine won't call it.
    * This is used as a performance optimization for production mode.
    */
-  destroyNode: (node: any) => void | null;
+  destroyNode: ((node: any) => void)|null;
   abstract appendChild(parent: any, newChild: any): void;
   abstract insertBefore(parent: any, newChild: any, refChild: any): void;
   abstract removeChild(parent: any, oldChild: any): void;
@@ -173,8 +176,8 @@ export abstract class Renderer2 {
    * the caller can't rely on checking whether this is null or not.
    */
   abstract nextSibling(node: any): any;
-  abstract setAttribute(el: any, name: string, value: string, namespace?: string): void;
-  abstract removeAttribute(el: any, name: string, namespace?: string): void;
+  abstract setAttribute(el: any, name: string, value: string, namespace?: string|null): void;
+  abstract removeAttribute(el: any, name: string, namespace?: string|null): void;
   abstract addClass(el: any, name: string): void;
   abstract removeClass(el: any, name: string): void;
   abstract setStyle(el: any, style: string, value: any, flags?: RendererStyleFlags2): void;

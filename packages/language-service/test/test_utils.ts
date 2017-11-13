@@ -63,11 +63,13 @@ missingCache.set(
 missingCache.set('/node_modules/@angular/forms/src/directives/form_interface.metadata.json', true);
 
 export class MockTypescriptHost implements ts.LanguageServiceHost {
-  private angularPath: string;
+  private angularPath: string|undefined;
   private nodeModulesPath: string;
   private scriptVersion = new Map<string, number>();
   private overrides = new Map<string, string>();
   private projectVersion = 0;
+  private options: ts.CompilerOptions;
+  private overrideDirectory = new Set<string>();
 
   constructor(private scriptNames: string[], private data: MockData) {
     const moduleFilename = module.filename.replace(/\\/g, '/');
@@ -77,30 +79,7 @@ export class MockTypescriptHost implements ts.LanguageServiceHost {
     let distIndex = moduleFilename.indexOf('/dist/all');
     if (distIndex >= 0)
       this.nodeModulesPath = path.join(moduleFilename.substr(0, distIndex), 'node_modules');
-  }
-
-  override(fileName: string, content: string) {
-    this.scriptVersion.set(fileName, (this.scriptVersion.get(fileName) || 0) + 1);
-    if (fileName.endsWith('.ts')) {
-      this.projectVersion++;
-    }
-    if (content) {
-      this.overrides.set(fileName, content);
-    } else {
-      this.overrides.delete(fileName);
-    }
-  }
-
-  addScript(fileName: string, content: string) {
-    this.projectVersion++;
-    this.overrides.set(fileName, content);
-    this.scriptNames.push(fileName);
-  }
-
-  forgetAngular() { this.angularPath = undefined; }
-
-  getCompilationSettings(): ts.CompilerOptions {
-    return {
+    this.options = {
       target: ts.ScriptTarget.ES5,
       module: ts.ModuleKind.CommonJS,
       moduleResolution: ts.ModuleResolutionKind.NodeJs,
@@ -112,6 +91,35 @@ export class MockTypescriptHost implements ts.LanguageServiceHost {
     };
   }
 
+  override(fileName: string, content: string) {
+    this.scriptVersion.set(fileName, (this.scriptVersion.get(fileName) || 0) + 1);
+    if (fileName.endsWith('.ts')) {
+      this.projectVersion++;
+    }
+    if (content) {
+      this.overrides.set(fileName, content);
+      this.overrideDirectory.add(path.dirname(fileName));
+    } else {
+      this.overrides.delete(fileName);
+    }
+  }
+
+  addScript(fileName: string, content: string) {
+    this.projectVersion++;
+    this.overrides.set(fileName, content);
+    this.overrideDirectory.add(path.dirname(fileName));
+    this.scriptNames.push(fileName);
+  }
+
+  forgetAngular() { this.angularPath = undefined; }
+
+  overrideOptions(cb: (options: ts.CompilerOptions) => ts.CompilerOptions) {
+    this.options = cb((Object as any).assign({}, this.options));
+    this.projectVersion++;
+  }
+
+  getCompilationSettings(): ts.CompilerOptions { return this.options; }
+
   getProjectVersion(): string { return this.projectVersion.toString(); }
 
   getScriptFileNames(): string[] { return this.scriptNames; }
@@ -120,7 +128,7 @@ export class MockTypescriptHost implements ts.LanguageServiceHost {
     return (this.scriptVersion.get(fileName) || 0).toString();
   }
 
-  getScriptSnapshot(fileName: string): ts.IScriptSnapshot {
+  getScriptSnapshot(fileName: string): ts.IScriptSnapshot|undefined {
     const content = this.getFileContent(fileName);
     if (content) return ts.ScriptSnapshot.fromString(content);
     return undefined;
@@ -131,12 +139,15 @@ export class MockTypescriptHost implements ts.LanguageServiceHost {
   getDefaultLibFileName(options: ts.CompilerOptions): string { return 'lib.d.ts'; }
 
   directoryExists(directoryName: string): boolean {
+    if (this.overrideDirectory.has(directoryName)) return true;
     let effectiveName = this.getEffectiveName(directoryName);
     if (effectiveName === directoryName)
       return directoryExists(directoryName, this.data);
     else
       return fs.existsSync(effectiveName);
   }
+
+  fileExists(fileName: string): boolean { return this.getRawFileContent(fileName) != null; }
 
   getMarkerLocations(fileName: string): {[name: string]: number}|undefined {
     let content = this.getRawFileContent(fileName);
@@ -145,19 +156,19 @@ export class MockTypescriptHost implements ts.LanguageServiceHost {
     }
   }
 
-  getReferenceMarkers(fileName: string): ReferenceResult {
+  getReferenceMarkers(fileName: string): ReferenceResult|undefined {
     let content = this.getRawFileContent(fileName);
     if (content) {
       return getReferenceMarkers(content);
     }
   }
 
-  getFileContent(fileName: string): string {
+  getFileContent(fileName: string): string|undefined {
     const content = this.getRawFileContent(fileName);
     if (content) return removeReferenceMarkers(removeLocationMarkers(content));
   }
 
-  private getRawFileContent(fileName: string): string {
+  private getRawFileContent(fileName: string): string|undefined {
     if (this.overrides.has(fileName)) {
       return this.overrides.get(fileName);
     }
@@ -225,7 +236,7 @@ function find(fileName: string, data: MockData): MockData|undefined {
     if (typeof current === 'string')
       return undefined;
     else
-      current = (<MockDirectory>current)[name];
+      current = (<MockDirectory>current)[name] !;
     if (!current) return undefined;
   }
   return current;
@@ -241,7 +252,7 @@ function open(fileName: string, data: MockData): string|undefined {
 
 function directoryExists(dirname: string, data: MockData): boolean {
   let result = find(dirname, data);
-  return result && typeof result !== 'string';
+  return !!result && typeof result !== 'string';
 }
 
 const locationMarker = /\~\{(\w+(-\w+)*)\}/g;

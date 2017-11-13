@@ -6,14 +6,24 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../dist/packages-dist/animations/@angular/animations.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  '@angular/core': 'ng.core',
+  '@angular/animations': 'ng.animations',
+  'rxjs/Observable': 'Rx',
+  'rxjs/Subject': 'Rx',
+};
+
+module.exports = {
+  entry: '../../dist/packages-dist/animations/esm5/animations.js',
   dest: '../../dist/packages-dist/animations/bundles/animations.umd.js',
   format: 'umd',
+  exports: 'named',
+  amd: {id: '@angular/animations'},
   moduleName: 'ng.animations',
-  globals: {
-    '@angular/core': 'ng.core',
-    'rxjs/Observable': 'Rx',
-    'rxjs/Subject': 'Rx',
-  }
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

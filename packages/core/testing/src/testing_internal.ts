@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ɵisPromise as isPromise, ɵmerge as merge} from '@angular/core';
+import {ɵisPromise as isPromise} from '@angular/core';
 import {global} from '@angular/core/src/util';
 
 import {AsyncTestCompleter} from './async_test_completer';
@@ -62,7 +62,7 @@ jsmBeforeEach(() => { testBed.resetTestingModule(); });
 
 function _describe(jsmFn: Function, ...args: any[]) {
   const parentRunner = runnerStack.length === 0 ? null : runnerStack[runnerStack.length - 1];
-  const runner = new BeforeEachRunner(parentRunner);
+  const runner = new BeforeEachRunner(parentRunner !);
   runnerStack.push(runner);
   const suite = jsmFn(...args);
   runnerStack.pop();
@@ -196,7 +196,7 @@ export class SpyObject {
       object = new SpyObject();
     }
 
-    const m = merge(config, overrides);
+    const m = {...config, ...overrides};
     Object.keys(m).forEach(key => { object.spy(key).and.returnValue(m[key]); });
     return object;
   }

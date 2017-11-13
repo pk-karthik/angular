@@ -7,7 +7,7 @@
  */
 
 import {isPlatformBrowser} from '@angular/common';
-import {APP_INITIALIZER, CUSTOM_ELEMENTS_SCHEMA, Compiler, Component, Directive, ErrorHandler, Inject, Input, LOCALE_ID, NgModule, OnDestroy, PLATFORM_ID, PLATFORM_INITIALIZER, Pipe, Provider, VERSION, createPlatformFactory, ɵstringify as stringify} from '@angular/core';
+import {APP_INITIALIZER, CUSTOM_ELEMENTS_SCHEMA, Compiler, Component, Directive, ErrorHandler, Inject, Input, LOCALE_ID, NgModule, OnDestroy, PLATFORM_ID, PLATFORM_INITIALIZER, Pipe, Provider, StaticProvider, VERSION, createPlatformFactory, ɵstringify as stringify} from '@angular/core';
 import {ApplicationRef, destroyPlatform} from '@angular/core/src/application_ref';
 import {Console} from '@angular/core/src/console';
 import {ComponentRef} from '@angular/core/src/linker/component_factory';
@@ -112,8 +112,8 @@ class DummyConsole implements Console {
 
 
 class TestModule {}
-function bootstrap(
-    cmpType: any, providers: Provider[] = [], platformProviders: Provider[] = []): Promise<any> {
+function bootstrap(cmpType: any, providers: Provider[] = [], platformProviders: StaticProvider[] = [
+]): Promise<any> {
   @NgModule({
     imports: [BrowserModule],
     declarations: [cmpType],
@@ -159,7 +159,7 @@ export function main() {
     it('should throw if bootstrapped Directive is not a Component',
        inject([AsyncTestCompleter], (done: AsyncTestCompleter) => {
          const logger = new MockConsole();
-         const errorHandler = new ErrorHandler(false);
+         const errorHandler = new ErrorHandler();
          errorHandler._console = logger as any;
          expect(
              () => bootstrap(
@@ -171,7 +171,7 @@ export function main() {
     it('should throw if no element is found',
        inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
          const logger = new MockConsole();
-         const errorHandler = new ErrorHandler(false);
+         const errorHandler = new ErrorHandler();
          errorHandler._console = logger as any;
          bootstrap(NonExistentComp, [
            {provide: ErrorHandler, useValue: errorHandler}
@@ -187,7 +187,7 @@ export function main() {
       it('should forward the error to promise when bootstrap fails',
          inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
            const logger = new MockConsole();
-           const errorHandler = new ErrorHandler(false);
+           const errorHandler = new ErrorHandler();
            errorHandler._console = logger as any;
 
            const refPromise =
@@ -202,7 +202,7 @@ export function main() {
       it('should invoke the default exception handler when bootstrap fails',
          inject([AsyncTestCompleter], (async: AsyncTestCompleter) => {
            const logger = new MockConsole();
-           const errorHandler = new ErrorHandler(false);
+           const errorHandler = new ErrorHandler();
            errorHandler._console = logger as any;
 
            const refPromise =

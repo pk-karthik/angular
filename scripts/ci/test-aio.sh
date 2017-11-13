@@ -14,28 +14,21 @@ source ${thisDir}/_travis-fold.sh
 
   # Lint the code
   travisFoldStart "test.aio.lint"
-    yarn run lint
+    yarn lint
   travisFoldEnd "test.aio.lint"
 
 
-  # Start xvfb for local Chrome used for testing
-  if [[ ${TRAVIS} ]]; then
-    travisFoldStart "test.aio.xvfb-start"
-      sh -e /etc/init.d/xvfb start
-    travisFoldEnd "test.aio.xvfb-start"
-  fi
+  # Run PWA-score tests
+  # (Run before unit and e2e tests, which destroy the `dist/` directory.)
+  travisFoldStart "test.aio.pwaScore"
+    yarn test-pwa-score-localhost
+  travisFoldEnd "test.aio.pwaScore"
 
 
   # Run unit tests
   travisFoldStart "test.aio.unit"
-    yarn test -- --single-run
+    yarn test --single-run
   travisFoldEnd "test.aio.unit"
-
-
-  # Run e2e tests
-  travisFoldStart "test.aio.e2e"
-    yarn run e2e
-  travisFoldEnd "test.aio.e2e"
 
 
   # Run unit tests for aio/aio-builds-setup

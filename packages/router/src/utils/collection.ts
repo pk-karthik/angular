@@ -41,44 +41,25 @@ export function shallowEqual(a: {[x: string]: any}, b: {[x: string]: any}): bool
   return true;
 }
 
-export function flatten<T>(a: T[][]): T[] {
-  const target: T[] = [];
-  for (let i = 0; i < a.length; ++i) {
-    for (let j = 0; j < a[i].length; ++j) {
-      target.push(a[i][j]);
-    }
-  }
-  return target;
+/**
+ * Flattens single-level nested arrays.
+ */
+export function flatten<T>(arr: T[][]): T[] {
+  return Array.prototype.concat.apply([], arr);
 }
 
-export function first<T>(a: T[]): T {
-  return a.length > 0 ? a[0] : null;
-}
-
-export function last<T>(a: T[]): T {
+/**
+ * Return the last element of an array.
+ */
+export function last<T>(a: T[]): T|null {
   return a.length > 0 ? a[a.length - 1] : null;
 }
 
+/**
+ * Verifys all booleans in an array are `true`.
+ */
 export function and(bools: boolean[]): boolean {
   return !bools.some(v => !v);
-}
-
-export function merge<V>(m1: {[key: string]: V}, m2: {[key: string]: V}): {[key: string]: V} {
-  const m: {[key: string]: V} = {};
-
-  for (const attr in m1) {
-    if (m1.hasOwnProperty(attr)) {
-      m[attr] = m1[attr];
-    }
-  }
-
-  for (const attr in m2) {
-    if (m2.hasOwnProperty(attr)) {
-      m[attr] = m2[attr];
-    }
-  }
-
-  return m;
 }
 
 export function forEach<K, V>(map: {[key: string]: V}, callback: (v: V, k: string) => void): void {
@@ -91,36 +72,32 @@ export function forEach<K, V>(map: {[key: string]: V}, callback: (v: V, k: strin
 
 export function waitForMap<A, B>(
     obj: {[k: string]: A}, fn: (k: string, a: A) => Observable<B>): Observable<{[k: string]: B}> {
-  const waitFor: Observable<B>[] = [];
+  if (Object.keys(obj).length === 0) {
+    return of ({});
+  }
+
+  const waitHead: Observable<B>[] = [];
+  const waitTail: Observable<B>[] = [];
   const res: {[k: string]: B} = {};
 
   forEach(obj, (a: A, k: string) => {
+    const mapped = map.call(fn(k, a), (r: B) => res[k] = r);
     if (k === PRIMARY_OUTLET) {
-      waitFor.push(map.call(fn(k, a), (_: B) => {
-        res[k] = _;
-        return _;
-      }));
+      waitHead.push(mapped);
+    } else {
+      waitTail.push(mapped);
     }
   });
 
-  forEach(obj, (a: A, k: string) => {
-    if (k !== PRIMARY_OUTLET) {
-      waitFor.push(map.call(fn(k, a), (_: B) => {
-        res[k] = _;
-        return _;
-      }));
-    }
-  });
-
-  if (waitFor.length > 0) {
-    const concatted$ = concatAll.call(of (...waitFor));
-    const last$ = l.last.call(concatted$);
-    return map.call(last$, () => res);
-  }
-
-  return of (res);
+  const concat$ = concatAll.call(of (...waitHead, ...waitTail));
+  const last$ = l.last.call(concat$);
+  return map.call(last$, () => res);
 }
 
+/**
+ * ANDs Observables by merging all input observables, reducing to an Observable verifying all
+ * input Observables return `true`.
+ */
 export function andObservables(observables: Observable<Observable<any>>): Observable<boolean> {
   const merged$ = mergeAll.call(observables);
   return every.call(merged$, (result: any) => result === true);
@@ -133,8 +110,11 @@ export function wrapIntoObservable<T>(value: T | NgModuleFactory<T>| Promise<T>|
   }
 
   if (isPromise(value)) {
-    return fromPromise(value);
+    // Use `Promise.resolve()` to wrap promise-like instances.
+    // Required ie when a Resolver returns a AngularJS `$q` promise to correctly trigger the
+    // change detection.
+    return fromPromise(Promise.resolve(value));
   }
 
-  return of (value);
+  return of (value as T);
 }

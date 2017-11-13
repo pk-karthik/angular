@@ -19,13 +19,12 @@ import {RouterOutlet} from './directives/router_outlet';
 import {RouteReuseStrategy} from './route_reuse_strategy';
 import {ErrorHandler, Router} from './router';
 import {ROUTES} from './router_config_loader';
-import {RouterOutletMap} from './router_outlet_map';
+import {ChildrenOutletContexts} from './router_outlet_context';
 import {NoPreloading, PreloadAllModules, PreloadingStrategy, RouterPreloader} from './router_preloader';
-import {ActivatedRoute, RouterStateSnapshot} from './router_state';
+import {ActivatedRoute} from './router_state';
 import {UrlHandlingStrategy} from './url_handling_strategy';
 import {DefaultUrlSerializer, UrlSerializer} from './url_tree';
 import {flatten} from './utils/collection';
-
 
 
 /**
@@ -52,12 +51,12 @@ export const ROUTER_PROVIDERS: Provider[] = [
     provide: Router,
     useFactory: setupRouter,
     deps: [
-      ApplicationRef, UrlSerializer, RouterOutletMap, Location, Injector, NgModuleFactoryLoader,
-      Compiler, ROUTES, ROUTER_CONFIGURATION, [UrlHandlingStrategy, new Optional()],
-      [RouteReuseStrategy, new Optional()]
+      ApplicationRef, UrlSerializer, ChildrenOutletContexts, Location, Injector,
+      NgModuleFactoryLoader, Compiler, ROUTES, ROUTER_CONFIGURATION,
+      [UrlHandlingStrategy, new Optional()], [RouteReuseStrategy, new Optional()]
     ]
   },
-  RouterOutletMap,
+  ChildrenOutletContexts,
   {provide: ActivatedRoute, useFactory: rootRoute, deps: [Router]},
   {provide: NgModuleFactoryLoader, useClass: SystemJsNgModuleLoader},
   RouterPreloader,
@@ -130,12 +129,15 @@ export class RouterModule {
    * Creates a module with all the router providers and directives. It also optionally sets up an
    * application listener to perform an initial navigation.
    *
-   * Options:
+   * Options (see {@link ExtraOptions}):
    * * `enableTracing` makes the router log all its internal events to the console.
    * * `useHash` enables the location strategy that uses the URL fragment instead of the history
    * API.
    * * `initialNavigation` disables the initial navigation.
    * * `errorHandler` provides a custom error handler.
+   * * `preloadingStrategy` configures a preloading strategy (see {@link PreloadAllModules}).
+   * * `onSameUrlNavigation` configures how the router handles navigation to the current URL. See
+   * {@link ExtraOptions} for more details.
    */
   static forRoot(routes: Routes, config?: ExtraOptions): ModuleWithProviders {
     return {
@@ -224,8 +226,8 @@ export function provideRoutes(routes: Routes): any {
  * * 'legacy_disabled'- the initial navigation is not performed. The location listener is set up
  * after @deprecated
  * the root component gets created.
- * * `true` - same as 'legacy_enabled'. @deprecated
- * * `false` - same as 'legacy_disabled'. @deprecated
+ * * `true` - same as 'legacy_enabled'. @deprecated since v4
+ * * `false` - same as 'legacy_disabled'. @deprecated since v4
  *
  * The 'enabled' option should be used for applications unless there is a reason to have
  * more control over when the router starts its initial navigation due to some complex
@@ -268,15 +270,23 @@ export interface ExtraOptions {
    * Configures a preloading strategy. See {@link PreloadAllModules}.
    */
   preloadingStrategy?: any;
+
+  /**
+   * Define what the router should do if it receives a navigation request to the current URL.
+   * By default, the router will ignore this navigation. However, this prevents features such
+   * as a "refresh" button. Use this option to configure the behavior when navigating to the
+   * current URL. Default is 'ignore'.
+   */
+  onSameUrlNavigation?: 'reload'|'ignore';
 }
 
 export function setupRouter(
-    ref: ApplicationRef, urlSerializer: UrlSerializer, outletMap: RouterOutletMap,
+    ref: ApplicationRef, urlSerializer: UrlSerializer, contexts: ChildrenOutletContexts,
     location: Location, injector: Injector, loader: NgModuleFactoryLoader, compiler: Compiler,
     config: Route[][], opts: ExtraOptions = {}, urlHandlingStrategy?: UrlHandlingStrategy,
     routeReuseStrategy?: RouteReuseStrategy) {
   const router = new Router(
-      null, urlSerializer, outletMap, location, injector, loader, compiler, flatten(config));
+      null, urlSerializer, contexts, location, injector, loader, compiler, flatten(config));
 
   if (urlHandlingStrategy) {
     router.urlHandlingStrategy = urlHandlingStrategy;
@@ -298,6 +308,10 @@ export function setupRouter(
       dom.log(e);
       dom.logGroupEnd();
     });
+  }
+
+  if (opts.onSameUrlNavigation) {
+    router.onSameUrlNavigation = opts.onSameUrlNavigation;
   }
 
   return router;
@@ -328,7 +342,7 @@ export class RouterInitializer {
   appInitializer(): Promise<any> {
     const p: Promise<any> = this.injector.get(LOCATION_INITIALIZED, Promise.resolve(null));
     return p.then(() => {
-      let resolve: Function = null;
+      let resolve: Function = null !;
       const res = new Promise(r => resolve = r);
       const router = this.injector.get(Router);
       const opts = this.injector.get(ROUTER_CONFIGURATION);
@@ -350,7 +364,7 @@ export class RouterInitializer {
 
             // subsequent navigations should not be delayed
           } else {
-            return of (null);
+            return of (null) as any;
           }
         };
         router.initialNavigation();
@@ -381,7 +395,7 @@ export class RouterInitializer {
 
     preloader.setUpPreloading();
     router.resetRootComponentType(ref.componentTypes[0]);
-    this.resultOfPreactivationDone.next(null);
+    this.resultOfPreactivationDone.next(null !);
     this.resultOfPreactivationDone.complete();
   }
 

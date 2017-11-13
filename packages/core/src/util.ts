@@ -6,6 +6,10 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
+// Import zero symbols from zone.js. This causes the zone ambient type to be
+// added to the type-checker, without emitting any runtime module load statement
+import {} from 'zone.js';
+
 // TODO(jteplitz602): Load WorkerGlobalScope from lib.webworker.d.ts file #3492
 declare var WorkerGlobalScope: any /** TODO #9100 */;
 // CommonJS / Node have global context exposed as "global" variable.
@@ -17,6 +21,11 @@ const __self = typeof self !== 'undefined' && typeof WorkerGlobalScope !== 'unde
     self instanceof WorkerGlobalScope && self;
 const __global = typeof global !== 'undefined' && global;
 const _global: {[name: string]: any} = __window || __global || __self;
+/**
+ * Attention: whenever providing a new value, be sure to add an
+ * entry into the corresponding `....externs.js` file,
+ * so that closure won't use that global for its purposes.
+ */
 export {_global as global};
 
 // When Symbol.iterator doesn't exist, retrieves the key used in es6-shim
@@ -56,6 +65,10 @@ export function stringify(token: any): string {
     return token;
   }
 
+  if (token instanceof Array) {
+    return '[' + token.map(stringify).join(', ') + ']';
+  }
+
   if (token == null) {
     return '' + token;
   }
@@ -69,6 +82,11 @@ export function stringify(token: any): string {
   }
 
   const res = token.toString();
+
+  if (res == null) {
+    return '' + res;
+  }
+
   const newLineIndex = res.indexOf('\n');
   return newLineIndex === -1 ? res : res.substring(0, newLineIndex);
 }

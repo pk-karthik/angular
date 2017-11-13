@@ -6,32 +6,30 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Injector, RenderComponentType, RootRenderer, Sanitizer, SecurityContext, ViewEncapsulation, WrappedValue, getDebugNode} from '@angular/core';
+import {ErrorHandler, SecurityContext, getDebugNode} from '@angular/core';
 import {getDebugContext} from '@angular/core/src/errors';
-import {ArgumentType, BindingType, DebugContext, NodeDef, NodeFlags, OutputType, RootData, Services, ViewData, ViewDefinition, ViewFlags, ViewHandleEventFn, ViewUpdateFn, anchorDef, asElementData, elementDef, rootRenderNodes, textDef, viewDef} from '@angular/core/src/view/index';
+import {BindingFlags, NodeFlags, Services, ViewData, ViewDefinition, asElementData, elementDef} from '@angular/core/src/view/index';
+import {TestBed} from '@angular/core/testing';
 import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 
-import {ARG_TYPE_VALUES, checkNodeInlineOrDynamic, createRootView, isBrowser, removeNodes} from './helper';
+import {ARG_TYPE_VALUES, callMostRecentEventListenerHandler, checkNodeInlineOrDynamic, compViewDef, createAndGetRootNodes, isBrowser, recordNodeToRemove} from './helper';
+
+
+
+/**
+ * We map addEventListener to the Zones internal name. This is because we want to be fast
+ * and bypass the zone bookkeeping. We know that we can do the bookkeeping faster.
+ */
+const addEventListener = '__zone_symbol__addEventListener';
+const removeEventListener = '__zone_symbol__removeEventListener';
 
 export function main() {
   describe(`View Elements`, () => {
-    function compViewDef(
-        nodes: NodeDef[], updateDirectives?: ViewUpdateFn, updateRenderer?: ViewUpdateFn,
-        viewFlags: ViewFlags = ViewFlags.None): ViewDefinition {
-      return viewDef(viewFlags, nodes, updateDirectives, updateRenderer);
-    }
-
-    function createAndGetRootNodes(
-        viewDef: ViewDefinition, context?: any): {rootNodes: any[], view: ViewData} {
-      const view = createRootView(viewDef, context);
-      const rootNodes = rootRenderNodes(view);
-      return {rootNodes, view};
-    }
 
     describe('create', () => {
       it('should create elements without parents', () => {
         const rootNodes = createAndGetRootNodes(compViewDef([
-                            elementDef(NodeFlags.None, null, null, 0, 'span')
+                            elementDef(0, NodeFlags.None, null, null, 0, 'span')
                           ])).rootNodes;
         expect(rootNodes.length).toBe(1);
         expect(getDOM().nodeName(rootNodes[0]).toLowerCase()).toBe('span');
@@ -39,16 +37,16 @@ export function main() {
 
       it('should create views with multiple root elements', () => {
         const rootNodes = createAndGetRootNodes(compViewDef([
-                            elementDef(NodeFlags.None, null, null, 0, 'span'),
-                            elementDef(NodeFlags.None, null, null, 0, 'span')
+                            elementDef(0, NodeFlags.None, null, null, 0, 'span'),
+                            elementDef(1, NodeFlags.None, null, null, 0, 'span'),
                           ])).rootNodes;
         expect(rootNodes.length).toBe(2);
       });
 
       it('should create elements with parents', () => {
         const rootNodes = createAndGetRootNodes(compViewDef([
-                            elementDef(NodeFlags.None, null, null, 1, 'div'),
-                            elementDef(NodeFlags.None, null, null, 0, 'span'),
+                            elementDef(0, NodeFlags.None, null, null, 1, 'div'),
+                            elementDef(1, NodeFlags.None, null, null, 0, 'span'),
                           ])).rootNodes;
         expect(rootNodes.length).toBe(1);
         const spanEl = getDOM().childNodes(rootNodes[0])[0];
@@ -57,7 +55,7 @@ export function main() {
 
       it('should set fixed attributes', () => {
         const rootNodes = createAndGetRootNodes(compViewDef([
-                            elementDef(NodeFlags.None, null, null, 0, 'div', [['title', 'a']]),
+                            elementDef(0, NodeFlags.None, null, null, 0, 'div', [['title', 'a']]),
                           ])).rootNodes;
         expect(rootNodes.length).toBe(1);
         expect(getDOM().getAttribute(rootNodes[0], 'title')).toBe('a');
@@ -66,8 +64,8 @@ export function main() {
       it('should add debug information to the renderer', () => {
         const someContext = new Object();
         const {view, rootNodes} = createAndGetRootNodes(
-            compViewDef([elementDef(NodeFlags.None, null, null, 0, 'div')]), someContext);
-        expect(getDebugNode(rootNodes[0]).nativeNode).toBe(asElementData(view, 0).renderElement);
+            compViewDef([elementDef(0, NodeFlags.None, null, null, 0, 'div')]), someContext);
+        expect(getDebugNode(rootNodes[0]) !.nativeNode).toBe(asElementData(view, 0).renderElement);
       });
     });
 
@@ -78,10 +76,10 @@ export function main() {
           const {view, rootNodes} = createAndGetRootNodes(compViewDef(
               [
                 elementDef(
-                    NodeFlags.None, null, null, 0, 'input', null,
+                    0, NodeFlags.None, null, null, 0, 'input', null,
                     [
-                      [BindingType.ElementProperty, 'title', SecurityContext.NONE],
-                      [BindingType.ElementProperty, 'value', SecurityContext.NONE]
+                      [BindingFlags.TypeProperty, 'title', SecurityContext.NONE],
+                      [BindingFlags.TypeProperty, 'value', SecurityContext.NONE],
                     ]),
               ],
               null, (check, view) => {
@@ -103,10 +101,10 @@ export function main() {
           const {view, rootNodes} = createAndGetRootNodes(compViewDef(
               [
                 elementDef(
-                    NodeFlags.None, null, null, 0, 'div', null,
+                    0, NodeFlags.None, null, null, 0, 'div', null,
                     [
-                      [BindingType.ElementAttribute, 'a1', SecurityContext.NONE],
-                      [BindingType.ElementAttribute, 'a2', SecurityContext.NONE]
+                      [BindingFlags.TypeElementAttribute, 'a1', SecurityContext.NONE],
+                      [BindingFlags.TypeElementAttribute, 'a2', SecurityContext.NONE],
                     ]),
               ],
               null, (check, view) => {
@@ -128,8 +126,11 @@ export function main() {
           const {view, rootNodes} = createAndGetRootNodes(compViewDef(
               [
                 elementDef(
-                    NodeFlags.None, null, null, 0, 'div', null,
-                    [[BindingType.ElementClass, 'c1'], [BindingType.ElementClass, 'c2']]),
+                    0, NodeFlags.None, null, null, 0, 'div', null,
+                    [
+                      [BindingFlags.TypeElementClass, 'c1', null],
+                      [BindingFlags.TypeElementClass, 'c2', null],
+                    ]),
               ],
               (check, view) => {
                 checkNodeInlineOrDynamic(check, view, 0, inlineDynamic, [true, true]);
@@ -150,10 +151,10 @@ export function main() {
           const {view, rootNodes} = createAndGetRootNodes(compViewDef(
               [
                 elementDef(
-                    NodeFlags.None, null, null, 0, 'div', null,
+                    0, NodeFlags.None, null, null, 0, 'div', null,
                     [
-                      [BindingType.ElementStyle, 'width', 'px'],
-                      [BindingType.ElementStyle, 'color', null]
+                      [BindingFlags.TypeElementStyle, 'width', 'px'],
+                      [BindingFlags.TypeElementStyle, 'color', null],
                     ]),
               ],
               null, (check, view) => {
@@ -178,7 +179,7 @@ export function main() {
           // won't work in IE.
           result.rootNodes.forEach((node) => {
             document.body.appendChild(node);
-            removeNodes.push(node);
+            recordNodeToRemove(node);
           });
           return result;
         }
@@ -186,9 +187,9 @@ export function main() {
         it('should listen to DOM events', () => {
           const handleEventSpy = jasmine.createSpy('handleEvent');
           const removeListenerSpy =
-              spyOn(HTMLElement.prototype, 'removeEventListener').and.callThrough();
+              spyOn(HTMLElement.prototype, removeEventListener).and.callThrough();
           const {view, rootNodes} = createAndAttachAndGetRootNodes(compViewDef([elementDef(
-              NodeFlags.None, null, null, 0, 'button', null, null, [[null, 'click']],
+              0, NodeFlags.None, null, null, 0, 'button', null, null, [[null !, 'click']],
               handleEventSpy)]));
 
           rootNodes[0].click();
@@ -206,15 +207,15 @@ export function main() {
 
         it('should listen to window events', () => {
           const handleEventSpy = jasmine.createSpy('handleEvent');
-          const addListenerSpy = spyOn(window, 'addEventListener');
-          const removeListenerSpy = spyOn(window, 'removeEventListener');
+          const addListenerSpy = spyOn(window, addEventListener);
+          const removeListenerSpy = spyOn(window, removeEventListener);
           const {view, rootNodes} = createAndAttachAndGetRootNodes(compViewDef([elementDef(
-              NodeFlags.None, null, null, 0, 'button', null, null, [['window', 'windowClick']],
+              0, NodeFlags.None, null, null, 0, 'button', null, null, [['window', 'windowClick']],
               handleEventSpy)]));
 
           expect(addListenerSpy).toHaveBeenCalled();
           expect(addListenerSpy.calls.mostRecent().args[0]).toBe('windowClick');
-          addListenerSpy.calls.mostRecent().args[1]({name: 'windowClick'});
+          callMostRecentEventListenerHandler(addListenerSpy, {name: 'windowClick'});
 
           expect(handleEventSpy).toHaveBeenCalled();
           const handleEventArgs = handleEventSpy.calls.mostRecent().args;
@@ -229,15 +230,15 @@ export function main() {
 
         it('should listen to document events', () => {
           const handleEventSpy = jasmine.createSpy('handleEvent');
-          const addListenerSpy = spyOn(document, 'addEventListener');
-          const removeListenerSpy = spyOn(document, 'removeEventListener');
+          const addListenerSpy = spyOn(document, addEventListener);
+          const removeListenerSpy = spyOn(document, removeEventListener);
           const {view, rootNodes} = createAndAttachAndGetRootNodes(compViewDef([elementDef(
-              NodeFlags.None, null, null, 0, 'button', null, null, [['document', 'documentClick']],
-              handleEventSpy)]));
+              0, NodeFlags.None, null, null, 0, 'button', null, null,
+              [['document', 'documentClick']], handleEventSpy)]));
 
           expect(addListenerSpy).toHaveBeenCalled();
           expect(addListenerSpy.calls.mostRecent().args[0]).toBe('documentClick');
-          addListenerSpy.calls.mostRecent().args[1]({name: 'documentClick'});
+          callMostRecentEventListenerHandler(addListenerSpy, {name: 'windowClick'});
 
           expect(handleEventSpy).toHaveBeenCalled();
           const handleEventArgs = handleEventSpy.calls.mostRecent().args;
@@ -252,10 +253,10 @@ export function main() {
 
         it('should preventDefault only if the handler returns false', () => {
           let eventHandlerResult: any;
-          let preventDefaultSpy: jasmine.Spy;
+          let preventDefaultSpy: jasmine.Spy = undefined !;
 
           const {view, rootNodes} = createAndAttachAndGetRootNodes(compViewDef([elementDef(
-              NodeFlags.None, null, null, 0, 'button', null, null, [[null, 'click']],
+              0, NodeFlags.None, null, null, 0, 'button', null, null, [[null !, 'click']],
               (view, eventName, event) => {
                 preventDefaultSpy = spyOn(event, 'preventDefault').and.callThrough();
                 return eventHandlerResult;
@@ -279,17 +280,14 @@ export function main() {
         });
 
         it('should report debug info on event errors', () => {
-          const addListenerSpy = spyOn(HTMLElement.prototype, 'addEventListener').and.callThrough();
+          const handleErrorSpy = spyOn(TestBed.get(ErrorHandler), 'handleError');
+          const addListenerSpy = spyOn(HTMLElement.prototype, addEventListener).and.callThrough();
           const {view, rootNodes} = createAndAttachAndGetRootNodes(compViewDef([elementDef(
-              NodeFlags.None, null, null, 0, 'button', null, null, [[null, 'click']],
+              0, NodeFlags.None, null, null, 0, 'button', null, null, [[null !, 'click']],
               () => { throw new Error('Test'); })]));
 
-          let err: any;
-          try {
-            addListenerSpy.calls.mostRecent().args[1]('SomeEvent');
-          } catch (e) {
-            err = e;
-          }
+          callMostRecentEventListenerHandler(addListenerSpy, 'SomeEvent');
+          const err = handleErrorSpy.calls.mostRecent().args[0];
           expect(err).toBeTruthy();
           expect(err.message).toBe('Test');
           const debugCtx = getDebugContext(err);

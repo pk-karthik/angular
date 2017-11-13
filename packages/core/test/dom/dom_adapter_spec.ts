@@ -68,6 +68,12 @@ export function main() {
       expect(() => getDOM().remove(d)).not.toThrow();
     });
 
+    it('should parse styles with urls correctly', () => {
+      const d = getDOM().createElement('div');
+      getDOM().setStyle(d, 'background-url', 'url(http://test.com/bg.jpg)');
+      expect(getDOM().getStyle(d, 'background-url')).toBe('url(http://test.com/bg.jpg)');
+    });
+
     if (getDOM().supportsDOMEvents()) {
       describe('getBaseHref', () => {
         beforeEach(() => getDOM().resetBaseElement());
@@ -94,7 +100,7 @@ export function main() {
           const headEl = defaultDoc.head;
           getDOM().appendChild(headEl, baseEl);
 
-          const baseHref = getDOM().getBaseHref(defaultDoc);
+          const baseHref = getDOM().getBaseHref(defaultDoc) !;
           getDOM().removeChild(headEl, baseEl);
           getDOM().resetBaseElement();
 

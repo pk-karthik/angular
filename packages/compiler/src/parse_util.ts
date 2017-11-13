@@ -51,7 +51,7 @@ export class ParseLocation {
 
   // Return the source around the location
   // Up to `maxChars` or `maxLines` on each side of the location
-  getContext(maxChars: number, maxLines: number): {before: string, after: string} {
+  getContext(maxChars: number, maxLines: number): {before: string, after: string}|null {
     const content = this.file.content;
     let startOffset = this.offset;
 
@@ -101,7 +101,7 @@ export class ParseSourceFile {
 
 export class ParseSourceSpan {
   constructor(
-      public start: ParseLocation, public end: ParseLocation, public details: string = null) {}
+      public start: ParseLocation, public end: ParseLocation, public details: string|null = null) {}
 
   toString(): string {
     return this.start.file.content.substring(this.start.offset, this.end.offset);
@@ -118,12 +118,15 @@ export class ParseError {
       public span: ParseSourceSpan, public msg: string,
       public level: ParseErrorLevel = ParseErrorLevel.ERROR) {}
 
-  toString(): string {
+  contextualMessage(): string {
     const ctx = this.span.start.getContext(100, 3);
-    const contextStr =
-        ctx ? ` ("${ctx.before}[${ParseErrorLevel[this.level]} ->]${ctx.after}")` : '';
+    return ctx ? `${this.msg} ("${ctx.before}[${ParseErrorLevel[this.level]} ->]${ctx.after}")` :
+                 this.msg;
+  }
+
+  toString(): string {
     const details = this.span.details ? `, ${this.span.details}` : '';
-    return `${this.msg}${contextStr}: ${this.span.start}${details}`;
+    return `${this.contextualMessage()}: ${this.span.start}${details}`;
   }
 }
 
@@ -133,6 +136,5 @@ export function typeSourceSpan(kind: string, type: CompileIdentifierMetadata): P
                                              `in ${kind} ${identifierName(type)}`;
   const sourceFile = new ParseSourceFile('', sourceFileName);
   return new ParseSourceSpan(
-      new ParseLocation(sourceFile, null, null, null),
-      new ParseLocation(sourceFile, null, null, null));
+      new ParseLocation(sourceFile, -1, -1, -1), new ParseLocation(sourceFile, -1, -1, -1));
 }

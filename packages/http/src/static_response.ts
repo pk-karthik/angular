@@ -32,7 +32,7 @@ import {Headers} from './headers';
  * can be accessed many times. There are other differences in the implementation, but this is the
  * most significant.
  *
- * @experimental
+ * @deprecated use @angular/common/http instead
  */
 export class Response extends Body {
   /**
@@ -63,7 +63,7 @@ export class Response extends Body {
    *
    * Defaults to "OK"
    */
-  statusText: string;
+  statusText: string|null;
   /**
    * Non-standard property
    *
@@ -81,17 +81,17 @@ export class Response extends Body {
    * Headers object based on the `Headers` class in the [Fetch
    * Spec](https://fetch.spec.whatwg.org/#headers-class).
    */
-  headers: Headers;
+  headers: Headers|null;
 
   constructor(responseOptions: ResponseOptions) {
     super();
     this._body = responseOptions.body;
-    this.status = responseOptions.status;
+    this.status = responseOptions.status !;
     this.ok = (this.status >= 200 && this.status <= 299);
     this.statusText = responseOptions.statusText;
     this.headers = responseOptions.headers;
-    this.type = responseOptions.type;
-    this.url = responseOptions.url;
+    this.type = responseOptions.type !;
+    this.url = responseOptions.url !;
   }
 
   toString(): string {

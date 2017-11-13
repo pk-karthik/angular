@@ -8,7 +8,6 @@
 
 import {Type} from '../type';
 import {PlatformReflectionCapabilities} from './platform_reflection_capabilities';
-import {ReflectorReader} from './reflector_reader';
 import {GetterFn, MethodFn, SetterFn} from './types';
 
 export {PlatformReflectionCapabilities} from './platform_reflection_capabilities';
@@ -18,8 +17,8 @@ export {GetterFn, MethodFn, SetterFn} from './types';
  * Provides access to reflection data about symbols. Used internally by Angular
  * to power dependency injection and compilation.
  */
-export class Reflector extends ReflectorReader {
-  constructor(public reflectionCapabilities: PlatformReflectionCapabilities) { super(); }
+export class Reflector {
+  constructor(public reflectionCapabilities: PlatformReflectionCapabilities) {}
 
   updateCapabilities(caps: PlatformReflectionCapabilities) { this.reflectionCapabilities = caps; }
 
@@ -48,6 +47,8 @@ export class Reflector extends ReflectorReader {
   method(name: string): MethodFn { return this.reflectionCapabilities.method(name); }
 
   importUri(type: any): string { return this.reflectionCapabilities.importUri(type); }
+
+  resourceUri(type: any): string { return this.reflectionCapabilities.resourceUri(type); }
 
   resolveIdentifier(name: string, moduleUrl: string, members: string[], runtime: any): any {
     return this.reflectionCapabilities.resolveIdentifier(name, moduleUrl, members, runtime);

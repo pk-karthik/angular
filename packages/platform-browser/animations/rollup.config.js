@@ -6,14 +6,25 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../../dist/packages-dist/platform-browser/@angular/platform-browser/animations.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  '@angular/core': 'ng.core',
+  '@angular/common': 'ng.common',
+  '@angular/platform-browser': 'ng.platformBrowser',
+  '@angular/animations': 'ng.animations',
+  '@angular/animations/browser': 'ng.animations.browser'
+};
+
+module.exports = {
+  entry: '../../../dist/packages-dist/platform-browser/esm5/animations.js',
   dest: '../../../dist/packages-dist/platform-browser/bundles/platform-browser-animations.umd.js',
   format: 'umd',
-  moduleName: 'ng.platformBrowser.testing',
-  globals: {
-    '@angular/core': 'ng.core',
-    '@angular/common': 'ng.common',
-    '@angular/platform-browser': 'ng.platformBrowser'
-  }
+  exports: 'named',
+  amd: {id: '@angular/platform-browser/animations'},
+  moduleName: 'ng.platformBrowser.animations',
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

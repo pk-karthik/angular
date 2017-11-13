@@ -68,10 +68,20 @@ describe('hover', () => {
         'property name of TestComponent');
   });
 
+  it('should be able to ignore a reference declaration', () => {
+    addCode(
+        ` @Component({template: '<div #«chart»></div>'}) export class MyComponent {  }`,
+        fileName => {
+          const markers = mockHost.getReferenceMarkers(fileName) !;
+          const hover = ngService.getHoverAt(fileName, markers.references.chart[0].start);
+          expect(hover).toBeUndefined();
+        });
+  });
+
   function hover(code: string, hoverText: string) {
     addCode(code, fileName => {
       let tests = 0;
-      const markers = mockHost.getReferenceMarkers(fileName);
+      const markers = mockHost.getReferenceMarkers(fileName) !;
       const keys = Object.keys(markers.references).concat(Object.keys(markers.definitions));
       for (const referenceName of keys) {
         const references = (markers.references[referenceName] ||
@@ -96,7 +106,7 @@ describe('hover', () => {
     try {
       cb(fileName, newContent);
     } finally {
-      mockHost.override(fileName, undefined);
+      mockHost.override(fileName, undefined !);
     }
   }
 

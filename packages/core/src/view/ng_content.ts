@@ -6,18 +6,19 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {NodeDef, NodeFlags, ViewData, asElementData} from './types';
+import {NodeDef, NodeFlags, ViewData} from './types';
 import {RenderNodeAction, getParentRenderElement, visitProjectedRenderNodes} from './util';
 
-export function ngContentDef(ngContentIndex: number, index: number): NodeDef {
+export function ngContentDef(ngContentIndex: null | number, index: number): NodeDef {
   return {
     // will bet set by the view definition
-    index: undefined,
-    parent: undefined,
-    renderParent: undefined,
-    bindingIndex: undefined,
-    outputIndex: undefined,
+    nodeIndex: -1,
+    parent: null,
+    renderParent: null,
+    bindingIndex: -1,
+    outputIndex: -1,
     // regular values
+    checkIndex: -1,
     flags: NodeFlags.TypeNgContent,
     childFlags: 0,
     directChildFlags: 0,
@@ -27,11 +28,12 @@ export function ngContentDef(ngContentIndex: number, index: number): NodeDef {
     references: {}, ngContentIndex,
     childCount: 0,
     bindings: [],
+    bindingFlags: 0,
     outputs: [],
-    element: undefined,
-    provider: undefined,
-    text: undefined,
-    query: undefined,
+    element: null,
+    provider: null,
+    text: null,
+    query: null,
     ngContent: {index}
   };
 }
@@ -42,7 +44,7 @@ export function appendNgContent(view: ViewData, renderHost: any, def: NodeDef) {
     // Nothing to do if there is no parent element.
     return;
   }
-  const ngContentIndex = def.ngContent.index;
+  const ngContentIndex = def.ngContent !.index;
   visitProjectedRenderNodes(
-      view, ngContentIndex, RenderNodeAction.AppendChild, parentEl, undefined, undefined);
+      view, ngContentIndex, RenderNodeAction.AppendChild, parentEl, null, undefined);
 }

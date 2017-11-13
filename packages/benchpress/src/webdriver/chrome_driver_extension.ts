@@ -6,7 +6,7 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {Inject, Injectable} from '@angular/core';
+import {Inject, Injectable, StaticProvider} from '@angular/core';
 
 import {Options} from '../common_options';
 import {WebDriverAdapter} from '../web_driver_adapter';
@@ -21,9 +21,13 @@ import {PerfLogEvent, PerfLogFeatures, WebDriverExtension} from '../web_driver_e
  */
 @Injectable()
 export class ChromeDriverExtension extends WebDriverExtension {
-  static PROVIDERS = [ChromeDriverExtension];
+  static PROVIDERS = <StaticProvider>[{
+    provide: ChromeDriverExtension,
+    deps: [WebDriverAdapter, Options.USER_AGENT]
+  }];
 
   private _majorChromeVersion: number;
+  private _firstRun = true;
 
   constructor(private _driver: WebDriverAdapter, @Inject(Options.USER_AGENT) userAgent: string) {
     super();
@@ -48,10 +52,16 @@ export class ChromeDriverExtension extends WebDriverExtension {
   gc() { return this._driver.executeScript('window.gc()'); }
 
   timeBegin(name: string): Promise<any> {
+    if (this._firstRun) {
+      this._firstRun = false;
+      // Before the first run, read out the existing performance logs
+      // so that the chrome buffer does not fill up.
+      this._driver.logs('performance');
+    }
     return this._driver.executeScript(`console.time('${name}');`);
   }
 
-  timeEnd(name: string, restartName: string = null): Promise<any> {
+  timeEnd(name: string, restartName: string|null = null): Promise<any> {
     let script = `console.timeEnd('${name}');`;
     if (restartName) {
       script += `console.time('${restartName}');`;
@@ -82,14 +92,14 @@ export class ChromeDriverExtension extends WebDriverExtension {
   }
 
   private _convertPerfRecordsToEvents(
-      chromeEvents: Array<{[key: string]: any}>, normalizedEvents: PerfLogEvent[] = null) {
+      chromeEvents: Array<{[key: string]: any}>, normalizedEvents: PerfLogEvent[]|null = null) {
     if (!normalizedEvents) {
       normalizedEvents = [];
     }
     chromeEvents.forEach((event) => {
       const categories = this._parseCategories(event['cat']);
       const normalizedEvent = this._convertEvent(event, categories);
-      if (normalizedEvent != null) normalizedEvents.push(normalizedEvent);
+      if (normalizedEvent != null) normalizedEvents !.push(normalizedEvent);
     });
     return normalizedEvents;
   }
@@ -103,7 +113,7 @@ export class ChromeDriverExtension extends WebDriverExtension {
                    categories, name, ['benchmark'],
                    'BenchmarkInstrumentation::ImplThreadRenderingStats')) {
       // TODO(goderbauer): Instead of BenchmarkInstrumentation::ImplThreadRenderingStats the
-      // following events should be used (if available) for more accurate measurments:
+      // following events should be used (if available) for more accurate measurements:
       //   1st choice: vsync_before - ground truth on Android
       //   2nd choice: BenchmarkInstrumentation::DisplayRenderingStats - available on systems with
       //               new surfaces framework (not broadly enabled yet)
@@ -167,7 +177,7 @@ export class ChromeDriverExtension extends WebDriverExtension {
 
   private _isEvent(
       eventCategories: string[], eventName: string, expectedCategories: string[],
-      expectedName: string = null): boolean {
+      expectedName: string|null = null): boolean {
     const hasCategories = expectedCategories.reduce(
         (value, cat) => value && eventCategories.indexOf(cat) !== -1, true);
     return !expectedName ? hasCategories : hasCategories && eventName === expectedName;

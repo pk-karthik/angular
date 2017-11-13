@@ -6,15 +6,24 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ElementSchemaRegistry} from '@angular/compiler/src/schema/element_schema_registry';
-import {TEST_COMPILER_PROVIDERS} from '@angular/compiler/testing/src/test_bindings';
-import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, DebugElement, Directive, DoCheck, EventEmitter, HostBinding, Inject, Injectable, Input, OnChanges, OnDestroy, OnInit, Output, Pipe, PipeTransform, RenderComponentType, Renderer, RendererFactory2, RootRenderer, SimpleChange, SimpleChanges, TemplateRef, Type, ViewChild, ViewContainerRef, WrappedValue} from '@angular/core';
+import {DomElementSchemaRegistry, ElementSchemaRegistry, ResourceLoader, UrlResolver} from '@angular/compiler';
+import {MockResourceLoader, MockSchemaRegistry} from '@angular/compiler/testing';
+import {AfterContentChecked, AfterContentInit, AfterViewChecked, AfterViewInit, ChangeDetectionStrategy, ChangeDetectorRef, Component, ContentChild, DebugElement, Directive, DoCheck, EventEmitter, HostBinding, Inject, Injectable, Input, OnChanges, OnDestroy, OnInit, Output, Pipe, PipeTransform, Provider, RenderComponentType, Renderer, RendererFactory2, RootRenderer, SimpleChange, SimpleChanges, TemplateRef, Type, ViewChild, ViewContainerRef, WrappedValue} from '@angular/core';
 import {ComponentFixture, TestBed, fakeAsync} from '@angular/core/testing';
 import {By} from '@angular/platform-browser/src/dom/debug/by';
 import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
-import {DomElementSchemaRegistry} from '../../../compiler/index';
-import {MockSchemaRegistry} from '../../../compiler/testing/index';
+
+export function createUrlResolverWithoutPackagePrefix(): UrlResolver {
+  return new UrlResolver();
+}
+
+const TEST_COMPILER_PROVIDERS: Provider[] = [
+  {provide: ElementSchemaRegistry, useValue: new MockSchemaRegistry({}, {}, {}, [], [])},
+  {provide: ResourceLoader, useClass: MockResourceLoader, deps: []},
+  {provide: UrlResolver, useFactory: createUrlResolverWithoutPackagePrefix, deps: []}
+];
+
 
 export function main() {
   let elSchema: MockSchemaRegistry;
@@ -261,14 +270,14 @@ export function main() {
       describe('safe navigation operator', () => {
         it('should support reading properties of nulls', fakeAsync(() => {
              const ctx = _bindSimpleValue('address?.city', Person);
-             ctx.componentInstance.address = null;
+             ctx.componentInstance.address = null !;
              ctx.detectChanges(false);
              expect(renderLog.log).toEqual(['someProp=null']);
            }));
 
         it('should support calling methods on nulls', fakeAsync(() => {
              const ctx = _bindSimpleValue('address?.toString()', Person);
-             ctx.componentInstance.address = null;
+             ctx.componentInstance.address = null !;
              ctx.detectChanges(false);
              expect(renderLog.log).toEqual(['someProp=null']);
            }));
@@ -289,7 +298,7 @@ export function main() {
 
         it('should support short-circuting safe navigation', fakeAsync(() => {
              const ctx = _bindSimpleValue('value?.address.city', PersonHolder);
-             ctx.componentInstance.value = null;
+             ctx.componentInstance.value = null !;
              ctx.detectChanges(false);
              expect(renderLog.log).toEqual(['someProp=null']);
            }));
@@ -317,7 +326,7 @@ export function main() {
              expect(() => {
                const ctx = _bindSimpleValue('value?.address.city', PersonHolder);
                const person = new Person();
-               person.address = null;
+               person.address = null !;
                ctx.componentInstance.value = person;
                ctx.detectChanges(false);
              }).toThrow();
@@ -515,7 +524,7 @@ export function main() {
              expect(renderLog.log).toEqual([]);
            }));
 
-        it('should unwrap the wrapped value', fakeAsync(() => {
+        it('should unwrap the wrapped value and force a change', fakeAsync(() => {
              const ctx = _bindSimpleValue('"Megatron" | wrappedPipe', Person);
 
              ctx.detectChanges(false);
@@ -528,10 +537,32 @@ export function main() {
              expect(renderLog.log).toEqual(['someProp=Megatron']);
            }));
 
+        it('should record unwrapped values via ngOnChanges', fakeAsync(() => {
+             const ctx = createCompFixture(
+                 '<div [testDirective]="\'aName\' | wrappedPipe" [a]="1" [b]="2 | wrappedPipe"></div>');
+             const dir: TestDirective = queryDirs(ctx.debugElement, TestDirective)[0];
+             ctx.detectChanges(false);
+             dir.changes = {};
+             ctx.detectChanges(false);
+
+             // Note: the binding for `b` did not change and has no ValueWrapper,
+             // and should therefore stay unchanged.
+             expect(dir.changes).toEqual({
+               'name': new SimpleChange('aName', 'aName', false),
+               'b': new SimpleChange(2, 2, false)
+             });
+
+             ctx.detectChanges(false);
+             expect(dir.changes).toEqual({
+               'name': new SimpleChange('aName', 'aName', false),
+               'b': new SimpleChange(2, 2, false)
+             });
+           }));
+
         it('should call pure pipes only if the arguments change', fakeAsync(() => {
              const ctx = _bindSimpleValue('name | countingPipe', Person);
              // change from undefined -> null
-             ctx.componentInstance.name = null;
+             ctx.componentInstance.name = null !;
              ctx.detectChanges(false);
              expect(renderLog.loggedValues).toEqual(['null state:0']);
              ctx.detectChanges(false);
@@ -644,6 +675,22 @@ export function main() {
 
     });
 
+    describe('RendererFactory', () => {
+      it('should call the begin and end methods on the renderer factory when change detection is called',
+         fakeAsync(() => {
+           const ctx = createCompFixture('<div testDirective [a]="42"></div>');
+           const rf = TestBed.get(RendererFactory2);
+           spyOn(rf, 'begin');
+           spyOn(rf, 'end');
+           expect(rf.begin).not.toHaveBeenCalled();
+           expect(rf.end).not.toHaveBeenCalled();
+
+           ctx.detectChanges(false);
+           expect(rf.begin).toHaveBeenCalled();
+           expect(rf.end).toHaveBeenCalled();
+         }));
+    });
+
     describe('change notification', () => {
       describe('updating directives', () => {
         it('should happen without invoking the renderer', fakeAsync(() => {
@@ -669,9 +716,16 @@ export function main() {
                  '<div [testDirective]="\'aName\'" [a]="1" [b]="2"></div><div [testDirective]="\'bName\'" [a]="4"></div>');
              ctx.detectChanges(false);
 
-             const dirs = queryDirs(ctx.debugElement, TestDirective);
-             expect(dirs[0].changes).toEqual({'a': 1, 'b': 2, 'name': 'aName'});
-             expect(dirs[1].changes).toEqual({'a': 4, 'name': 'bName'});
+             const dirs = <TestDirective[]>queryDirs(ctx.debugElement, TestDirective);
+             expect(dirs[0].changes).toEqual({
+               'a': new SimpleChange(undefined, 1, true),
+               'b': new SimpleChange(undefined, 2, true),
+               'name': new SimpleChange(undefined, 'aName', true)
+             });
+             expect(dirs[1].changes).toEqual({
+               'a': new SimpleChange(undefined, 4, true),
+               'name': new SimpleChange(undefined, 'bName', true)
+             });
            }));
       });
     });
@@ -736,6 +790,7 @@ export function main() {
              try {
                ctx.detectChanges(false);
              } catch (e) {
+               expect(e.message).toBe('Boom!');
                errored = true;
              }
              expect(errored).toBe(true);
@@ -747,7 +802,8 @@ export function main() {
              try {
                ctx.detectChanges(false);
              } catch (e) {
-               throw new Error('Second detectChanges() should not have run detection.');
+               expect(e.message).toBe('Boom!');
+               throw new Error('Second detectChanges() should not have called ngOnInit.');
              }
              expect(directiveLog.filter(['ngOnInit'])).toEqual([]);
            }));
@@ -1096,7 +1152,6 @@ export function main() {
              ]);
            }));
       });
-
     });
 
     describe('enforce no new changes', () => {
@@ -1141,6 +1196,21 @@ export function main() {
            cmp.value = 'hello';
            cmp.changeDetectorRef.detach();
 
+           ctx.detectChanges();
+
+           expect(renderLog.log).toEqual([]);
+         }));
+
+      it('Detached should disable OnPush', fakeAsync(() => {
+           const ctx = createCompFixture('<push-cmp [value]="value"></push-cmp>');
+           ctx.componentInstance.value = 0;
+           ctx.detectChanges();
+           renderLog.clear();
+
+           const cmp: CompWithRef = queryDirs(ctx.debugElement, PushComp)[0];
+           cmp.changeDetectorRef.detach();
+
+           ctx.componentInstance.value = 1;
            ctx.detectChanges();
 
            expect(renderLog.log).toEqual([]);
@@ -1196,7 +1266,6 @@ export function main() {
 
            ctx.detectChanges();
            expect(cmp.renderCount).toBe(count);
-
          }));
 
     });
@@ -1248,6 +1317,120 @@ export function main() {
            ctx.detectChanges();
            expect(renderLog.loggedValues).toEqual(['Tom']);
          });
+
+      describe('projected views', () => {
+        let log: string[];
+
+        @Directive({selector: '[i]'})
+        class DummyDirective {
+          @Input()
+          i: any;
+        }
+
+        @Component({
+          selector: 'main-cmp',
+          template:
+              `<span [i]="log('start')"></span><outer-cmp><ng-template><span [i]="log('tpl')"></span></ng-template></outer-cmp>`
+        })
+        class MainComp {
+          constructor(public cdRef: ChangeDetectorRef) {}
+          log(id: string) { log.push(`main-${id}`); }
+        }
+
+        @Component({
+          selector: 'outer-cmp',
+          template:
+              `<span [i]="log('start')"></span><inner-cmp [outerTpl]="tpl"><ng-template><span [i]="log('tpl')"></span></ng-template></inner-cmp>`
+        })
+        class OuterComp {
+          @ContentChild(TemplateRef)
+          tpl: TemplateRef<any>;
+
+          constructor(public cdRef: ChangeDetectorRef) {}
+          log(id: string) { log.push(`outer-${id}`); }
+        }
+
+        @Component({
+          selector: 'inner-cmp',
+          template:
+              `<span [i]="log('start')"></span>><ng-container [ngTemplateOutlet]="outerTpl"></ng-container><ng-container [ngTemplateOutlet]="tpl"></ng-container>`
+        })
+        class InnerComp {
+          @ContentChild(TemplateRef)
+          tpl: TemplateRef<any>;
+
+          @Input()
+          outerTpl: TemplateRef<any>;
+
+          constructor(public cdRef: ChangeDetectorRef) {}
+          log(id: string) { log.push(`inner-${id}`); }
+        }
+
+        let ctx: ComponentFixture<MainComp>;
+        let mainComp: MainComp;
+        let outerComp: OuterComp;
+        let innerComp: InnerComp;
+
+        beforeEach(() => {
+          log = [];
+          ctx = TestBed
+                    .configureTestingModule(
+                        {declarations: [MainComp, OuterComp, InnerComp, DummyDirective]})
+                    .createComponent(MainComp);
+          mainComp = ctx.componentInstance;
+          outerComp = ctx.debugElement.query(By.directive(OuterComp)).injector.get(OuterComp);
+          innerComp = ctx.debugElement.query(By.directive(InnerComp)).injector.get(InnerComp);
+        });
+
+        it('should dirty check projected views in regular order', () => {
+          ctx.detectChanges(false);
+          expect(log).toEqual(
+              ['main-start', 'outer-start', 'inner-start', 'main-tpl', 'outer-tpl']);
+
+          log = [];
+          ctx.detectChanges(false);
+          expect(log).toEqual(
+              ['main-start', 'outer-start', 'inner-start', 'main-tpl', 'outer-tpl']);
+        });
+
+        it('should not dirty check projected views if neither the declaration nor the insertion place is dirty checked',
+           () => {
+             ctx.detectChanges(false);
+             log = [];
+             mainComp.cdRef.detach();
+             ctx.detectChanges(false);
+
+             expect(log).toEqual([]);
+           });
+
+        it('should dirty check projected views if the insertion place is dirty checked', () => {
+          ctx.detectChanges(false);
+          log = [];
+
+          innerComp.cdRef.detectChanges();
+          expect(log).toEqual(['inner-start', 'main-tpl', 'outer-tpl']);
+        });
+
+        it('should dirty check projected views if the declaration place is dirty checked', () => {
+          ctx.detectChanges(false);
+          log = [];
+          innerComp.cdRef.detach();
+          mainComp.cdRef.detectChanges();
+
+          expect(log).toEqual(['main-start', 'outer-start', 'main-tpl', 'outer-tpl']);
+
+          log = [];
+          outerComp.cdRef.detectChanges();
+
+          expect(log).toEqual(['outer-start', 'outer-tpl']);
+
+          log = [];
+          outerComp.cdRef.detach();
+          mainComp.cdRef.detectChanges();
+
+          expect(log).toEqual(['main-start', 'main-tpl']);
+        });
+      });
     });
 
     describe('class binding', () => {
@@ -1277,6 +1460,151 @@ export function main() {
         const divEl = ctx.debugElement.children[0];
         expect(divEl.nativeElement).toHaveCssClass('init');
         expect(divEl.nativeElement).toHaveCssClass('foo');
+      });
+    });
+
+    describe('lifecycle asserts', () => {
+      let logged: string[];
+
+      function log(value: string) { logged.push(value); }
+      function clearLog() { logged = []; }
+
+      function expectOnceAndOnlyOnce(log: string) {
+        expect(logged.indexOf(log) >= 0)
+            .toBeTruthy(`'${log}' not logged. Log was ${JSON.stringify(logged)}`);
+        expect(logged.lastIndexOf(log) === logged.indexOf(log))
+            .toBeTruthy(`'${log}' logged more than once. Log was ${JSON.stringify(logged)}`);
+      }
+
+      beforeEach(() => { clearLog(); });
+
+      enum LifetimeMethods {
+        None = 0,
+        ngOnInit = 1 << 0,
+        ngOnChanges = 1 << 1,
+        ngAfterViewInit = 1 << 2,
+        ngAfterContentInit = 1 << 3,
+        ngDoCheck = 1 << 4,
+        InitMethods = ngOnInit | ngAfterViewInit | ngAfterContentInit,
+        InitMethodsAndChanges = InitMethods | ngOnChanges,
+        All = InitMethodsAndChanges | ngDoCheck,
+      }
+
+      function forEachMethod(methods: LifetimeMethods, cb: (method: LifetimeMethods) => void) {
+        if (methods & LifetimeMethods.ngOnInit) cb(LifetimeMethods.ngOnInit);
+        if (methods & LifetimeMethods.ngOnChanges) cb(LifetimeMethods.ngOnChanges);
+        if (methods & LifetimeMethods.ngAfterContentInit) cb(LifetimeMethods.ngAfterContentInit);
+        if (methods & LifetimeMethods.ngAfterViewInit) cb(LifetimeMethods.ngAfterViewInit);
+        if (methods & LifetimeMethods.ngDoCheck) cb(LifetimeMethods.ngDoCheck);
+      }
+
+      interface Options {
+        childRecursion: LifetimeMethods;
+        childThrows: LifetimeMethods;
+      }
+
+      describe('calling init', () => {
+        function initialize(options: Options) {
+          @Component({selector: 'my-child', template: ''})
+          class MyChild {
+            private thrown = LifetimeMethods.None;
+
+            @Input() inp: boolean;
+            @Output() outp = new EventEmitter<any>();
+
+            constructor() {}
+
+            ngDoCheck() { this.check(LifetimeMethods.ngDoCheck); }
+            ngOnInit() { this.check(LifetimeMethods.ngOnInit); }
+            ngOnChanges() { this.check(LifetimeMethods.ngOnChanges); }
+            ngAfterViewInit() { this.check(LifetimeMethods.ngAfterViewInit); }
+            ngAfterContentInit() { this.check(LifetimeMethods.ngAfterContentInit); }
+
+            private check(method: LifetimeMethods) {
+              log(`MyChild::${LifetimeMethods[method]}()`);
+
+              if ((options.childRecursion & method) !== 0) {
+                if (logged.length < 20) {
+                  this.outp.emit(null);
+                } else {
+                  fail(`Unexpected MyChild::${LifetimeMethods[method]} recursion`);
+                }
+              }
+              if ((options.childThrows & method) !== 0) {
+                if ((this.thrown & method) === 0) {
+                  this.thrown |= method;
+                  log(`<THROW from MyChild::${LifetimeMethods[method]}>()`);
+                  throw new Error(`Throw from MyChild::${LifetimeMethods[method]}`);
+                }
+              }
+            }
+          }
+
+          @Component({
+            selector: 'my-component',
+            template: `<my-child [inp]='true' (outp)='onOutp()'></my-child>`
+          })
+          class MyComponent {
+            constructor(private changeDetectionRef: ChangeDetectorRef) {}
+            ngDoCheck() { this.check(LifetimeMethods.ngDoCheck); }
+            ngOnInit() { this.check(LifetimeMethods.ngOnInit); }
+            ngAfterViewInit() { this.check(LifetimeMethods.ngAfterViewInit); }
+            ngAfterContentInit() { this.check(LifetimeMethods.ngAfterContentInit); }
+            onOutp() {
+              log('<RECURSION START>');
+              this.changeDetectionRef.detectChanges();
+              log('<RECURSION DONE>');
+            }
+
+            private check(method: LifetimeMethods) {
+              log(`MyComponent::${LifetimeMethods[method]}()`);
+            }
+          }
+
+          TestBed.configureTestingModule({declarations: [MyChild, MyComponent]});
+
+          return createCompFixture(`<my-component></my-component>`);
+        }
+
+        function ensureOneInit(options: Options) {
+          const ctx = initialize(options);
+
+
+          const throws = options.childThrows != LifetimeMethods.None;
+          if (throws) {
+            log(`<CYCLE 0 START>`);
+            expect(() => {
+              // Expect child to throw.
+              ctx.detectChanges();
+            }).toThrow();
+            log(`<CYCLE 0 END>`);
+            log(`<CYCLE 1 START>`);
+          }
+          ctx.detectChanges();
+          if (throws) log(`<CYCLE 1 DONE>`);
+          expectOnceAndOnlyOnce('MyComponent::ngOnInit()');
+          expectOnceAndOnlyOnce('MyChild::ngOnInit()');
+          expectOnceAndOnlyOnce('MyComponent::ngAfterViewInit()');
+          expectOnceAndOnlyOnce('MyComponent::ngAfterContentInit()');
+          expectOnceAndOnlyOnce('MyChild::ngAfterViewInit()');
+          expectOnceAndOnlyOnce('MyChild::ngAfterContentInit()');
+        }
+
+        forEachMethod(LifetimeMethods.InitMethodsAndChanges, method => {
+          it(`should ensure that init hooks are called once an only once with recursion in ${LifetimeMethods[method]} `,
+             () => {
+               // Ensure all the init methods are called once.
+               ensureOneInit({childRecursion: method, childThrows: LifetimeMethods.None});
+             });
+        });
+        forEachMethod(LifetimeMethods.All, method => {
+          it(`should ensure that init hooks are called once an only once with a throw in ${LifetimeMethods[method]} `,
+             () => {
+               // Ensure all the init methods are called once.
+               // the first cycle throws but the next cycle should complete the inits.
+               ensureOneInit({childRecursion: LifetimeMethods.None, childThrows: method});
+             });
+        });
       });
     });
   });
@@ -1355,13 +1683,13 @@ class DirectiveLog {
 @Pipe({name: 'countingPipe'})
 class CountingPipe implements PipeTransform {
   state: number = 0;
-  transform(value: any) { return `${value} state:${this.state ++}`; }
+  transform(value: any) { return `${value} state:${this.state++}`; }
 }
 
 @Pipe({name: 'countingImpurePipe', pure: false})
 class CountingImpurePipe implements PipeTransform {
   state: number = 0;
-  transform(value: any) { return `${value} state:${this.state ++}`; }
+  transform(value: any) { return `${value} state:${this.state++}`; }
 }
 
 @Pipe({name: 'pipeWithOnDestroy'})
@@ -1457,7 +1785,7 @@ class TestDirective implements OnInit, DoCheck, OnChanges, AfterContentInit, Aft
     AfterViewInit, AfterViewChecked, OnDestroy {
   @Input() a: any;
   @Input() b: any;
-  changes: any;
+  changes: SimpleChanges;
   event: any;
   eventEmitter: EventEmitter<string> = new EventEmitter<string>();
 
@@ -1480,9 +1808,7 @@ class TestDirective implements OnInit, DoCheck, OnChanges, AfterContentInit, Aft
 
   ngOnChanges(changes: SimpleChanges) {
     this.log.add(this.name, 'ngOnChanges');
-    const r: {[k: string]: string} = {};
-    Object.keys(changes).forEach(key => { r[key] = changes[key].currentValue; });
-    this.changes = r;
+    this.changes = changes;
     if (this.throwOn == 'ngOnChanges') {
       throw new Error('Boom!');
     }
@@ -1593,10 +1919,10 @@ class TestLocals {
 class Person {
   age: number;
   name: string;
-  address: Address = null;
+  address: Address|null = null;
   phones: number[];
 
-  init(name: string, address: Address = null) {
+  init(name: string, address: Address|null = null) {
     this.name = name;
     this.address = address;
   }

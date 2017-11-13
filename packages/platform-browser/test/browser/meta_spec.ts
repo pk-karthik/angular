@@ -14,11 +14,13 @@ import {expect} from '@angular/platform-browser/testing/src/matchers';
 
 export function main() {
   describe('Meta service', () => {
-    const doc = getDOM().createHtmlDocument();
-    const metaService = new Meta(doc);
+    let doc: Document;
+    let metaService: Meta;
     let defaultMeta: HTMLMetaElement;
 
     beforeEach(() => {
+      doc = getDOM().createHtmlDocument();
+      metaService = new Meta(doc);
       defaultMeta = getDOM().createElement('meta', doc) as HTMLMetaElement;
       getDOM().setAttribute(defaultMeta, 'property', 'fb:app_id');
       getDOM().setAttribute(defaultMeta, 'content', '123456789');
@@ -28,14 +30,14 @@ export function main() {
     afterEach(() => getDOM().remove(defaultMeta));
 
     it('should return meta tag matching selector', () => {
-      const actual: HTMLMetaElement = metaService.getTag('property="fb:app_id"');
+      const actual: HTMLMetaElement = metaService.getTag('property="fb:app_id"') !;
       expect(actual).not.toBeNull();
       expect(getDOM().getAttribute(actual, 'content')).toEqual('123456789');
     });
 
     it('should return all meta tags matching selector', () => {
-      const tag1 = metaService.addTag({name: 'author', content: 'page author'});
-      const tag2 = metaService.addTag({name: 'author', content: 'another page author'});
+      const tag1 = metaService.addTag({name: 'author', content: 'page author'}) !;
+      const tag2 = metaService.addTag({name: 'author', content: 'another page author'}) !;
 
       const actual: HTMLMetaElement[] = metaService.getTags('name=author');
       expect(actual.length).toEqual(2);
@@ -48,7 +50,7 @@ export function main() {
     });
 
     it('should return null if meta tag does not exist', () => {
-      const actual: HTMLMetaElement = metaService.getTag('fake=fake');
+      const actual: HTMLMetaElement = metaService.getTag('fake=fake') !;
       expect(actual).toBeNull();
     });
 
@@ -71,7 +73,7 @@ export function main() {
 
       metaService.addTags([{name: 'keywords', content: 'meta test'}]);
 
-      const meta = metaService.getTag(selector);
+      const meta = metaService.getTag(selector) !;
       expect(meta).not.toBeNull();
 
       metaService.removeTagElement(meta);
@@ -102,7 +104,7 @@ export function main() {
 
       metaService.updateTag({name: 'twitter:title', content: 'Content Title'}, selector);
 
-      const actual = metaService.getTag(selector);
+      const actual = metaService.getTag(selector) !;
       expect(actual).not.toBeNull();
       expect(getDOM().getAttribute(actual, 'content')).toEqual('Content Title');
 
@@ -116,7 +118,7 @@ export function main() {
 
       metaService.addTag({name: 'og:title', content: 'Content Title'});
 
-      const actual = metaService.getTag(selector);
+      const actual = metaService.getTag(selector) !;
       expect(actual).not.toBeNull();
       expect(getDOM().getAttribute(actual, 'content')).toEqual('Content Title');
 
@@ -134,8 +136,8 @@ export function main() {
         {name: 'twitter:title', content: 'Content Title'},
         {property: 'og:title', content: 'Content Title'}
       ]);
-      const twitterMeta = metaService.getTag(nameSelector);
-      const fbMeta = metaService.getTag(propertySelector);
+      const twitterMeta = metaService.getTag(nameSelector) !;
+      const fbMeta = metaService.getTag(propertySelector) !;
       expect(twitterMeta).not.toBeNull();
       expect(fbMeta).not.toBeNull();
 
@@ -158,7 +160,7 @@ export function main() {
          const selector = 'property="fb:app_id"';
          expect(metaService.getTags(selector).length).toEqual(1);
 
-         const meta = metaService.addTag({property: 'fb:app_id', content: '666'});
+         const meta = metaService.addTag({property: 'fb:app_id', content: '666'}) !;
 
          expect(metaService.getTags(selector).length).toEqual(2);
 
@@ -170,7 +172,7 @@ export function main() {
       const selector = 'property="fb:app_id"';
       expect(metaService.getTags(selector).length).toEqual(1);
 
-      const meta = metaService.addTag({property: 'fb:app_id', content: '123456789'}, true);
+      const meta = metaService.addTag({property: 'fb:app_id', content: '123456789'}, true) !;
 
       expect(metaService.getTags(selector).length).toEqual(2);
 

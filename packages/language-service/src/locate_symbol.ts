@@ -6,37 +6,40 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AST, Attribute, BoundDirectivePropertyAst, BoundEventAst, ElementAst, TemplateAst, tokenReference} from '@angular/compiler';
+import {AST, Attribute, BoundDirectivePropertyAst, BoundEventAst, ElementAst, TemplateAst, TemplateAstPath, findNode, tokenReference} from '@angular/compiler';
+import {getExpressionScope} from '@angular/compiler-cli/src/language_services';
 
 import {TemplateInfo} from './common';
-import {getExpressionScope, getExpressionSymbol} from './expressions';
-import {HtmlAstPath} from './html_path';
-import {TemplateAstPath} from './template_path';
+import {getExpressionSymbol} from './expressions';
 import {Definition, Location, Span, Symbol, SymbolTable} from './types';
-import {inSpan, offsetSpan, spanOf} from './utils';
+import {diagnosticInfoFromTemplateInfo, findTemplateAstAt, inSpan, offsetSpan, spanOf} from './utils';
 
 export interface SymbolInfo {
   symbol: Symbol;
   span: Span;
 }
 
-export function locateSymbol(info: TemplateInfo): SymbolInfo {
+export function locateSymbol(info: TemplateInfo): SymbolInfo|undefined {
+  if (!info.position) return undefined;
   const templatePosition = info.position - info.template.span.start;
-  const path = new TemplateAstPath(info.templateAst, templatePosition);
+  const path = findTemplateAstAt(info.templateAst, templatePosition);
   if (path.tail) {
-    let symbol: Symbol = undefined;
-    let span: Span = undefined;
+    let symbol: Symbol|undefined = undefined;
+    let span: Span|undefined = undefined;
     const attributeValueSymbol = (ast: AST, inEvent: boolean = false): boolean => {
       const attribute = findAttribute(info);
       if (attribute) {
         if (inSpan(templatePosition, spanOf(attribute.valueSpan))) {
-          const scope = getExpressionScope(info, path, inEvent);
-          const expressionOffset = attribute.valueSpan.start.offset + 1;
-          const result = getExpressionSymbol(
-              scope, ast, templatePosition - expressionOffset, info.template.query);
-          if (result) {
-            symbol = result.symbol;
-            span = offsetSpan(result.span, expressionOffset);
+          const dinfo = diagnosticInfoFromTemplateInfo(info);
+          const scope = getExpressionScope(dinfo, path, inEvent);
+          if (attribute.valueSpan) {
+            const expressionOffset = attribute.valueSpan.start.offset + 1;
+            const result = getExpressionSymbol(
+                scope, ast, templatePosition - expressionOffset, info.template.query);
+            if (result) {
+              symbol = result.symbol;
+              span = offsetSpan(result.span, expressionOffset);
+            }
           }
           return true;
         }
@@ -55,8 +58,8 @@ export function locateSymbol(info: TemplateInfo): SymbolInfo {
               span = spanOf(ast);
             } else {
               // Find a directive that matches the element name
-              const directive =
-                  ast.directives.find(d => d.directive.selector.indexOf(ast.name) >= 0);
+              const directive = ast.directives.find(
+                  d => d.directive.selector != null && d.directive.selector.indexOf(ast.name) >= 0);
               if (directive) {
                 symbol = info.template.query.getTypeSymbol(directive.directive.type.reference);
                 symbol = symbol && new OverrideKindSymbol(symbol, 'directive');
@@ -65,7 +68,7 @@ export function locateSymbol(info: TemplateInfo): SymbolInfo {
             }
           },
           visitReference(ast) {
-            symbol = info.template.query.getTypeSymbol(tokenReference(ast.value));
+            symbol = ast.value && info.template.query.getTypeSymbol(tokenReference(ast.value));
             span = spanOf(ast);
           },
           visitVariable(ast) {},
@@ -81,7 +84,8 @@ export function locateSymbol(info: TemplateInfo): SymbolInfo {
           visitBoundText(ast) {
             const expressionPosition = templatePosition - ast.sourceSpan.start.offset;
             if (inSpan(expressionPosition, ast.value.span)) {
-              const scope = getExpressionScope(info, path, /* includeEvent */ false);
+              const dinfo = diagnosticInfoFromTemplateInfo(info);
+              const scope = getExpressionScope(dinfo, path, /* includeEvent */ false);
               const result =
                   getExpressionSymbol(scope, ast.value, expressionPosition, info.template.query);
               if (result) {
@@ -109,14 +113,17 @@ export function locateSymbol(info: TemplateInfo): SymbolInfo {
   }
 }
 
-function findAttribute(info: TemplateInfo): Attribute {
-  const templatePosition = info.position - info.template.span.start;
-  const path = new HtmlAstPath(info.htmlAst, templatePosition);
-  return path.first(Attribute);
+function findAttribute(info: TemplateInfo): Attribute|undefined {
+  if (info.position) {
+    const templatePosition = info.position - info.template.span.start;
+    const path = findNode(info.htmlAst, templatePosition);
+    return path.first(Attribute);
+  }
 }
 
 function findInputBinding(
-    info: TemplateInfo, path: TemplateAstPath, binding: BoundDirectivePropertyAst): Symbol {
+    info: TemplateInfo, path: TemplateAstPath, binding: BoundDirectivePropertyAst): Symbol|
+    undefined {
   const element = path.first(ElementAst);
   if (element) {
     for (const directive of element.directives) {
@@ -133,7 +140,7 @@ function findInputBinding(
 }
 
 function findOutputBinding(
-    info: TemplateInfo, path: TemplateAstPath, binding: BoundEventAst): Symbol {
+    info: TemplateInfo, path: TemplateAstPath, binding: BoundEventAst): Symbol|undefined {
   const element = path.first(ElementAst);
   if (element) {
     for (const directive of element.directives) {
@@ -162,11 +169,10 @@ function invertMap(obj: {[name: string]: string}): {[name: string]: string} {
  * Wrap a symbol and change its kind to component.
  */
 class OverrideKindSymbol implements Symbol {
-  constructor(private sym: Symbol, private kindOverride: string) {}
+  public readonly kind: string;
+  constructor(private sym: Symbol, kindOverride: string) { this.kind = kindOverride; }
 
   get name(): string { return this.sym.name; }
-
-  get kind(): string { return this.kindOverride; }
 
   get language(): string { return this.sym.language; }
 
@@ -177,6 +183,8 @@ class OverrideKindSymbol implements Symbol {
   get public(): boolean { return this.sym.public; }
 
   get callable(): boolean { return this.sym.callable; }
+
+  get nullable(): boolean { return this.sym.nullable; }
 
   get definition(): Definition { return this.sym.definition; }
 

@@ -8,6 +8,8 @@
 
 import {Injector, NgModule} from '@angular/core';
 import {beforeEach, describe, expect, inject, it} from '@angular/core/testing/src/testing_internal';
+import {JitReflector} from '@angular/platform-browser-dynamic/src/compiler_reflector';
+
 import {MockNgModuleResolver} from '../testing';
 
 export function main() {
@@ -15,7 +17,7 @@ export function main() {
     let ngModuleResolver: MockNgModuleResolver;
 
     beforeEach(inject([Injector], (injector: Injector) => {
-      ngModuleResolver = new MockNgModuleResolver(injector);
+      ngModuleResolver = new MockNgModuleResolver(new JitReflector());
     }));
 
     describe('NgModule overriding', () => {

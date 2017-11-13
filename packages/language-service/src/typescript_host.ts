@@ -6,28 +6,18 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {AotSummaryResolver, CompileDirectiveMetadata, CompileMetadataResolver, CompilerConfig, DEFAULT_INTERPOLATION_CONFIG, DirectiveNormalizer, DirectiveResolver, DomElementSchemaRegistry, HtmlParser, InterpolationConfig, NgAnalyzedModules, NgModuleResolver, ParseTreeResult, Parser, PipeResolver, ResourceLoader, StaticReflector, StaticSymbol, StaticSymbolCache, StaticSymbolResolver, SummaryResolver, UrlResolver, analyzeNgModules, componentModuleUrl, createOfflineCompileUrlResolver, extractProgramSymbols} from '@angular/compiler';
-import {Type, ViewEncapsulation, ɵConsole as Console} from '@angular/core';
+import {AotSummaryResolver, CompileMetadataResolver, CompilerConfig, DEFAULT_INTERPOLATION_CONFIG, DirectiveNormalizer, DirectiveResolver, DomElementSchemaRegistry, HtmlParser, InterpolationConfig, JitSummaryResolver, NgAnalyzedModules, NgModuleResolver, ParseTreeResult, PipeResolver, ResourceLoader, StaticReflector, StaticSymbol, StaticSymbolCache, StaticSymbolResolver, SummaryResolver, analyzeNgModules, createOfflineCompileUrlResolver} from '@angular/compiler';
+import {CompilerOptions, getClassMembersFromDeclaration, getPipesTable, getSymbolQuery} from '@angular/compiler-cli/src/language_services';
+import {ViewEncapsulation, ɵConsole as Console} from '@angular/core';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as ts from 'typescript';
 
 import {createLanguageService} from './language_service';
 import {ReflectorHost} from './reflector_host';
-import {BuiltinType, CompletionKind, Declaration, DeclarationError, Declarations, Definition, LanguageService, LanguageServiceHost, PipeInfo, Pipes, Signature, Span, Symbol, SymbolDeclaration, SymbolQuery, SymbolTable, TemplateSource, TemplateSources} from './types';
+import {BuiltinType, Declaration, DeclarationError, DeclarationKind, Declarations, Definition, LanguageService, LanguageServiceHost, PipeInfo, Pipes, Signature, Span, Symbol, SymbolDeclaration, SymbolQuery, SymbolTable, TemplateSource, TemplateSources} from './types';
+import {isTypescriptVersion} from './utils';
 
-
-// In TypeScript 2.1 these flags moved
-// These helpers work for both 2.0 and 2.1.
-const isPrivate = (ts as any).ModifierFlags ?
-    ((node: ts.Node) =>
-         !!((ts as any).getCombinedModifierFlags(node) & (ts as any).ModifierFlags.Private)) :
-    ((node: ts.Node) => !!(node.flags & (ts as any).NodeFlags.Private));
-const isReferenceType = (ts as any).ObjectFlags ?
-    ((type: ts.Type) =>
-         !!(type.flags & (ts as any).TypeFlags.Object &&
-            (type as any).objectFlags & (ts as any).ObjectFlags.Reference)) :
-    ((type: ts.Type) => !!(type.flags & (ts as any).TypeFlags.Reference));
 
 /**
  * Create a `LanguageServiceHost`
@@ -44,11 +34,9 @@ export function createLanguageServiceFromTypescript(
  * The language service never needs the normalized versions of the metadata. To avoid parsing
  * the content and resolving references, return an empty file. This also allows normalizing
  * template that are syntatically incorrect which is required to provide completions in
- * syntatically incorrect templates.
+ * syntactically incorrect templates.
  */
 export class DummyHtmlParser extends HtmlParser {
-  constructor() { super(); }
-
   parse(
       source: string, url: string, parseExpansionForms: boolean = false,
       interpolationConfig: InterpolationConfig = DEFAULT_INTERPOLATION_CONFIG): ParseTreeResult {
@@ -69,24 +57,26 @@ export class DummyResourceLoader extends ResourceLoader {
  * The `TypeScriptServiceHost` implements the Angular `LanguageServiceHost` using
  * the TypeScript language services.
  *
- * @expermental
+ * @experimental
  */
 export class TypeScriptServiceHost implements LanguageServiceHost {
-  private _resolver: CompileMetadataResolver;
+  private _resolver: CompileMetadataResolver|null;
   private _staticSymbolCache = new StaticSymbolCache();
+  private _summaryResolver: AotSummaryResolver;
   private _staticSymbolResolver: StaticSymbolResolver;
-  private _reflector: StaticReflector;
+  private _reflector: StaticReflector|null;
   private _reflectorHost: ReflectorHost;
-  private _checker: ts.TypeChecker;
+  private _checker: ts.TypeChecker|null;
   private _typeCache: Symbol[] = [];
   private context: string|undefined;
   private lastProgram: ts.Program|undefined;
   private modulesOutOfDate: boolean = true;
-  private analyzedModules: NgAnalyzedModules;
+  private analyzedModules: NgAnalyzedModules|null;
   private service: LanguageService;
-  private fileToComponent: Map<string, StaticSymbol>;
-  private templateReferences: string[];
-  private collectedErrors: Map<string, any[]>;
+  private fileToComponent: Map<string, StaticSymbol>|null;
+  private templateReferences: string[]|null;
+  private collectedErrors: Map<string, any[]>|null;
+  private fileVersions = new Map<string, string>();
 
   constructor(private host: ts.LanguageServiceHost, private tsService: ts.LanguageService) {}
 
@@ -114,16 +104,17 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
           new DirectiveNormalizer(resourceLoader, urlResolver, htmlParser, config);
 
       result = this._resolver = new CompileMetadataResolver(
-          config, moduleResolver, directiveResolver, pipeResolver, new SummaryResolver(),
-          elementSchemaRegistry, directiveNormalizer, new Console(), this._staticSymbolCache,
-          this.reflector, (error, type) => this.collectError(error, type && type.filePath));
+          config, htmlParser, moduleResolver, directiveResolver, pipeResolver,
+          new JitSummaryResolver(), elementSchemaRegistry, directiveNormalizer, new Console(),
+          this._staticSymbolCache, this.reflector,
+          (error, type) => this.collectError(error, type && type.filePath));
     }
     return result;
   }
 
   getTemplateReferences(): string[] {
     this.ensureTemplateMap();
-    return this.templateReferences;
+    return this.templateReferences || [];
   }
 
   getTemplateAt(fileName: string, position: number): TemplateSource|undefined {
@@ -138,12 +129,13 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
     } else {
       this.ensureTemplateMap();
       // TODO: Cannocalize the file?
-      const componentType = this.fileToComponent.get(fileName);
+      const componentType = this.fileToComponent !.get(fileName);
       if (componentType) {
         return this.getSourceFromType(
             fileName, this.host.getScriptVersion(fileName), componentType);
       }
     }
+    return undefined;
   }
 
   getAnalyzedModules(): NgAnalyzedModules {
@@ -155,19 +147,17 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
     let analyzedModules = this.analyzedModules;
     if (!analyzedModules) {
       const analyzeHost = {isSourceFile(filePath: string) { return true; }};
-      const programSymbols = extractProgramSymbols(
-          this.staticSymbolResolver, this.program.getSourceFiles().map(sf => sf.fileName),
-          analyzeHost);
+      const programFiles = this.program.getSourceFiles().map(sf => sf.fileName);
 
       analyzedModules = this.analyzedModules =
-          analyzeNgModules(programSymbols, analyzeHost, this.resolver);
+          analyzeNgModules(programFiles, analyzeHost, this.staticSymbolResolver, this.resolver);
     }
     return analyzedModules;
   }
 
   getTemplates(fileName: string): TemplateSources {
     this.ensureTemplateMap();
-    const componentType = this.fileToComponent.get(fileName);
+    const componentType = this.fileToComponent !.get(fileName);
     if (componentType) {
       const templateSource = this.getTemplateAt(fileName, 0);
       if (templateSource) {
@@ -189,7 +179,7 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
 
       let sourceFile = this.getSourceFile(fileName);
       if (sourceFile) {
-        this.context = sourceFile.path;
+        this.context = (sourceFile as any).path || sourceFile.fileName;
         ts.forEachChild(sourceFile, visit);
       }
       return result.length ? result : undefined;
@@ -222,7 +212,6 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
     if (this.modulesOutOfDate) {
       this.analyzedModules = null;
       this._reflector = null;
-      this._staticSymbolResolver = null;
       this.templateReferences = null;
       this.fileToComponent = null;
       this.ensureAnalyzedModules();
@@ -242,8 +231,28 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
 
   private validate() {
     const program = this.program;
-    if (this.lastProgram != program) {
+    if (this._staticSymbolResolver && this.lastProgram != program) {
+      // Invalidate file that have changed in the static symbol resolver
+      const invalidateFile = (fileName: string) =>
+          this._staticSymbolResolver.invalidateFile(fileName);
       this.clearCaches();
+      const seen = new Set<string>();
+      for (let sourceFile of this.program.getSourceFiles()) {
+        const fileName = sourceFile.fileName;
+        seen.add(fileName);
+        const version = this.host.getScriptVersion(fileName);
+        const lastVersion = this.fileVersions.get(fileName);
+        if (version != lastVersion) {
+          this.fileVersions.set(fileName, version);
+          invalidateFile(fileName);
+        }
+      }
+
+      // Remove file versions that are no longer in the file and invalidate them.
+      const missing = Array.from(this.fileVersions.keys()).filter(f => !seen.has(f));
+      missing.forEach(f => this.fileVersions.delete(f));
+      missing.forEach(invalidateFile);
+
       this.lastProgram = program;
     }
   }
@@ -264,11 +273,10 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
       const urlResolver = createOfflineCompileUrlResolver();
       for (const module of ngModuleSummary.ngModules) {
         for (const directive of module.declaredDirectives) {
-          const {metadata, annotation} =
-              this.resolver.getNonNormalizedDirectiveMetadata(directive.reference);
+          const {metadata} = this.resolver.getNonNormalizedDirectiveMetadata(directive.reference) !;
           if (metadata.isComponent && metadata.template && metadata.template.templateUrl) {
             const templateName = urlResolver.resolve(
-                componentModuleUrl(this.reflector, directive.reference, annotation),
+                this.reflector.componentModuleUrl(directive.reference),
                 metadata.template.templateUrl);
             fileToComponent.set(templateName, directive.reference);
             templateReference.push(templateName);
@@ -292,19 +300,17 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
         source,
         span,
         type,
-        get members():
-            SymbolTable{const checker = t.checker; const program = t.program;
-                        const type = checker.getTypeAtLocation(declaration);
-                        return new TypeWrapper(type, {node, program, checker}).members();},
-        get query(): SymbolQuery{
+        get members() {
+          return getClassMembersFromDeclaration(t.program, t.checker, sourceFile, declaration);
+        },
+        get query() {
           if (!queryCache) {
-            queryCache = new TypeScriptSymbolQuery(t.program, t.checker, sourceFile, () => {
-              const pipes = t.service.getPipesAt(fileName, node.getStart());
-              const checker = t.checker;
-              const program = t.program;
-              return new PipesTable(pipes, {node, program, checker});
-            });
-          } return queryCache;
+            const pipes = t.service.getPipesAt(fileName, node.getStart());
+            queryCache = getSymbolQuery(
+                t.program, t.checker, sourceFile,
+                () => getPipesTable(sourceFile, t.program, t.checker, pipes));
+          }
+          return queryCache;
         }
       };
     }
@@ -318,11 +324,10 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
       case ts.SyntaxKind.NoSubstitutionTemplateLiteral:
       case ts.SyntaxKind.StringLiteral:
         let [declaration, decorator] = this.getTemplateClassDeclFromNode(node);
-        let queryCache: SymbolQuery|undefined = undefined;
         if (declaration && declaration.name) {
           const sourceFile = this.getSourceFile(fileName);
           return this.getSourceFromDeclaration(
-              fileName, version, this.stringOf(node), shrink(spanOf(node)),
+              fileName, version, this.stringOf(node) || '', shrink(spanOf(node)),
               this.reflector.getStaticSymbol(sourceFile.fileName, declaration.name.text),
               declaration, node, sourceFile);
         }
@@ -337,10 +342,12 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
     const declaration = this.getTemplateClassFromStaticSymbol(type);
     if (declaration) {
       const snapshot = this.host.getScriptSnapshot(fileName);
-      const source = snapshot.getText(0, snapshot.getLength());
-      result = this.getSourceFromDeclaration(
-          fileName, version, source, {start: 0, end: source.length}, type, declaration, declaration,
-          declaration.getSourceFile());
+      if (snapshot) {
+        const source = snapshot.getText(0, snapshot.getLength());
+        result = this.getSourceFromDeclaration(
+            fileName, version, source, {start: 0, end: source.length}, type, declaration,
+            declaration, declaration.getSourceFile());
+      }
     }
     return result;
   }
@@ -364,39 +371,49 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
 
       const tsConfigPath = findTsConfig(source.fileName);
       const basePath = path.dirname(tsConfigPath || this.context);
-
-      result = this._reflectorHost = new ReflectorHost(
-          () => this.tsService.getProgram(), this.host, {basePath, genDir: basePath});
+      const options: CompilerOptions = {basePath, genDir: basePath};
+      const compilerOptions = this.host.getCompilationSettings();
+      if (compilerOptions && compilerOptions.baseUrl) {
+        options.baseUrl = compilerOptions.baseUrl;
+      }
+      if (compilerOptions && compilerOptions.paths) {
+        options.paths = compilerOptions.paths;
+      }
+      result = this._reflectorHost =
+          new ReflectorHost(() => this.tsService.getProgram(), this.host, options);
     }
     return result;
   }
 
-  private collectError(error: any, filePath: string) {
-    let errorMap = this.collectedErrors;
-    if (!errorMap) {
-      errorMap = this.collectedErrors = new Map();
+  private collectError(error: any, filePath: string|null) {
+    if (filePath) {
+      let errorMap = this.collectedErrors;
+      if (!errorMap || !this.collectedErrors) {
+        errorMap = this.collectedErrors = new Map();
+      }
+      let errors = errorMap.get(filePath);
+      if (!errors) {
+        errors = [];
+        this.collectedErrors.set(filePath, errors);
+      }
+      errors.push(error);
     }
-    let errors = errorMap.get(filePath);
-    if (!errors) {
-      errors = [];
-      this.collectedErrors.set(filePath, errors);
-    }
-    errors.push(error);
   }
 
   private get staticSymbolResolver(): StaticSymbolResolver {
     let result = this._staticSymbolResolver;
     if (!result) {
-      const summaryResolver = new AotSummaryResolver(
+      this._summaryResolver = new AotSummaryResolver(
           {
             loadSummary(filePath: string) { return null; },
             isSourceFile(sourceFilePath: string) { return true; },
-            getOutputFileName(sourceFilePath: string) { return null; }
+            toSummaryFileName(sourceFilePath: string) { return sourceFilePath; },
+            fromSummaryFileName(filePath: string): string{return filePath;},
           },
           this._staticSymbolCache);
       result = this._staticSymbolResolver = new StaticSymbolResolver(
-          this.reflectorHost, this._staticSymbolCache, summaryResolver,
-          (e, filePath) => this.collectError(e, filePath));
+          this.reflectorHost as any, this._staticSymbolCache, this._summaryResolver,
+          (e, filePath) => this.collectError(e, filePath !));
     }
     return result;
   }
@@ -404,8 +421,9 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
   private get reflector(): StaticReflector {
     let result = this._reflector;
     if (!result) {
+      const ssr = this.staticSymbolResolver;
       result = this._reflector = new StaticReflector(
-          this.staticSymbolResolver, [], [], (e, filePath) => this.collectError(e, filePath));
+          this._summaryResolver, ssr, [], [], (e, filePath) => this.collectError(e, filePath !));
     }
     return result;
   }
@@ -416,7 +434,7 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
       const declarationNode = ts.forEachChild(source, child => {
         if (child.kind === ts.SyntaxKind.ClassDeclaration) {
           const classDeclaration = child as ts.ClassDeclaration;
-          if (classDeclaration.name.text === type.name) {
+          if (classDeclaration.name != null && classDeclaration.name.text === type.name) {
             return classDeclaration;
           }
         }
@@ -427,14 +445,15 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
     return undefined;
   }
 
-  private static missingTemplate = <[ts.ClassDeclaration, ts.Expression]>[];
+  private static missingTemplate: [ts.ClassDeclaration | undefined, ts.Expression|undefined] =
+      [undefined, undefined];
 
   /**
    * Given a template string node, see if it is an Angular template string, and if so return the
    * containing class.
    */
   private getTemplateClassDeclFromNode(currentToken: ts.Node):
-      [ts.ClassDeclaration, ts.Expression] {
+      [ts.ClassDeclaration | undefined, ts.Expression|undefined] {
     // Verify we are in a 'template' property assignment, in an object literal, which is an call
     // arg, in a decorator
     let parentNode = currentToken.parent;  // PropertyAssignment
@@ -492,11 +511,11 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
             const type = this.checker.getTypeAtLocation(target);
             if (type) {
               const staticSymbol =
-                  this._reflector.getStaticSymbol(sourceFile.fileName, classDeclaration.name.text);
+                  this.reflector.getStaticSymbol(sourceFile.fileName, classDeclaration.name.text);
               try {
                 if (this.resolver.isDirective(staticSymbol as any)) {
                   const {metadata} =
-                      this.resolver.getNonNormalizedDirectiveMetadata(staticSymbol as any);
+                      this.resolver.getNonNormalizedDirectiveMetadata(staticSymbol as any) !;
                   const declarationSpan = spanOf(target);
                   return {
                     type: staticSymbol,
@@ -533,8 +552,6 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
   }
 
   private findNode(sourceFile: ts.SourceFile, position: number): ts.Node|undefined {
-    let _this = this;
-
     function find(node: ts.Node): ts.Node|undefined {
       if (position >= node.getStart() && position < node.getEnd()) {
         return ts.forEachChild(node, find) || node;
@@ -543,606 +560,18 @@ export class TypeScriptServiceHost implements LanguageServiceHost {
 
     return find(sourceFile);
   }
-
-  private findLiteralType(kind: BuiltinType, context: TypeContext): Symbol {
-    const checker = this.checker;
-    let type: ts.Type;
-    switch (kind) {
-      case BuiltinType.Any:
-        type = checker.getTypeAtLocation(<ts.Node><any>{
-          kind: ts.SyntaxKind.AsExpression,
-          expression: <ts.Node>{kind: ts.SyntaxKind.TrueKeyword},
-          type: <ts.Node>{kind: ts.SyntaxKind.AnyKeyword}
-        });
-        break;
-      case BuiltinType.Boolean:
-        type = checker.getTypeAtLocation(<ts.Node>{kind: ts.SyntaxKind.TrueKeyword});
-        break;
-      case BuiltinType.Null:
-        type = checker.getTypeAtLocation(<ts.Node>{kind: ts.SyntaxKind.NullKeyword});
-        break;
-      case BuiltinType.Number:
-        type = checker.getTypeAtLocation(<ts.Node>{kind: ts.SyntaxKind.NumericLiteral});
-        break;
-      case BuiltinType.String:
-        type =
-            checker.getTypeAtLocation(<ts.Node>{kind: ts.SyntaxKind.NoSubstitutionTemplateLiteral});
-        break;
-      case BuiltinType.Undefined:
-        type = checker.getTypeAtLocation(<ts.Node>{kind: ts.SyntaxKind.VoidExpression});
-        break;
-      default:
-        throw new Error(`Internal error, unhandled literal kind ${kind}:${BuiltinType[kind]}`);
-    }
-    return new TypeWrapper(type, context);
-  }
 }
 
-class TypeScriptSymbolQuery implements SymbolQuery {
-  private typeCache = new Map<BuiltinType, Symbol>();
-  private pipesCache: SymbolTable;
 
-  constructor(
-      private program: ts.Program, private checker: ts.TypeChecker, private source: ts.SourceFile,
-      private fetchPipes: () => SymbolTable) {}
-
-  getTypeKind(symbol: Symbol): BuiltinType { return typeKindOf(this.getTsTypeOf(symbol)); }
-
-  getBuiltinType(kind: BuiltinType): Symbol {
-    // TODO: Replace with typeChecker API when available.
-    let result = this.typeCache.get(kind);
-    if (!result) {
-      const type = getBuiltinTypeFromTs(
-          kind, {checker: this.checker, node: this.source, program: this.program});
-      result =
-          new TypeWrapper(type, {program: this.program, checker: this.checker, node: this.source});
-      this.typeCache.set(kind, result);
-    }
-    return result;
-  }
-
-  getTypeUnion(...types: Symbol[]): Symbol {
-    // TODO: Replace with typeChecker API when available
-    const checker = this.checker;
-
-    // No API exists so the cheat is to just return the last type any if no types are given.
-    return types.length ? types[types.length - 1] : this.getBuiltinType(BuiltinType.Any);
-  }
-
-  getArrayType(type: Symbol): Symbol {
-    // TODO: Replace with typeChecker API when available
-    return this.getBuiltinType(BuiltinType.Any);
-  }
-
-  getElementType(type: Symbol): Symbol {
-    if (type instanceof TypeWrapper) {
-      const elementType = getTypeParameterOf(type.tsType, 'Array');
-      if (elementType) {
-        return new TypeWrapper(elementType, type.context);
-      }
-    }
-  }
-
-  getNonNullableType(symbol: Symbol): Symbol {
-    // TODO: Replace with typeChecker API when available;
-    return symbol;
-  }
-
-  getPipes(): SymbolTable {
-    let result = this.pipesCache;
-    if (!result) {
-      result = this.pipesCache = this.fetchPipes();
-    }
-    return result;
-  }
-
-  getTemplateContext(type: StaticSymbol): SymbolTable {
-    const context: TypeContext = {node: this.source, program: this.program, checker: this.checker};
-    const typeSymbol = findClassSymbolInContext(type, context);
-    if (typeSymbol) {
-      const contextType = this.getTemplateRefContextType(typeSymbol);
-      if (contextType) return new SymbolWrapper(contextType, context).members();
-    }
-  }
-
-  getTypeSymbol(type: StaticSymbol): Symbol {
-    const context: TypeContext = {node: this.source, program: this.program, checker: this.checker};
-    const typeSymbol = findClassSymbolInContext(type, context);
-    return new SymbolWrapper(typeSymbol, context);
-  }
-
-  createSymbolTable(symbols: SymbolDeclaration[]): SymbolTable {
-    const result = new MapSymbolTable();
-    result.addAll(symbols.map(s => new DeclaredSymbol(s)));
-    return result;
-  }
-
-  mergeSymbolTable(symbolTables: SymbolTable[]): SymbolTable {
-    const result = new MapSymbolTable();
-    for (const symbolTable of symbolTables) {
-      result.addAll(symbolTable.values());
-    }
-    return result;
-  }
-
-  getSpanAt(line: number, column: number): Span { return spanAt(this.source, line, column); }
-
-  private getTemplateRefContextType(type: ts.Symbol): ts.Symbol {
-    const constructor = type.members['__constructor'];
-    if (constructor) {
-      const constructorDeclaration = constructor.declarations[0] as ts.ConstructorTypeNode;
-      for (const parameter of constructorDeclaration.parameters) {
-        const type = this.checker.getTypeAtLocation(parameter.type);
-        if (type.symbol.name == 'TemplateRef' && isReferenceType(type)) {
-          const typeReference = type as ts.TypeReference;
-          if (typeReference.typeArguments.length === 1) {
-            return typeReference.typeArguments[0].symbol;
-          }
-        }
-      };
-    }
-  }
-
-  private getTsTypeOf(symbol: Symbol): ts.Type {
-    const type = this.getTypeWrapper(symbol);
-    return type && type.tsType;
-  }
-
-  private getTypeWrapper(symbol: Symbol): TypeWrapper|undefined {
-    let type: TypeWrapper|undefined = undefined;
-    if (symbol instanceof TypeWrapper) {
-      type = symbol;
-    } else if (symbol.type instanceof TypeWrapper) {
-      type = symbol.type;
-    }
-    return type;
-  }
-}
-
-interface TypeContext {
-  node: ts.Node;
-  program: ts.Program;
-  checker: ts.TypeChecker;
-}
-
-function typeCallable(type: ts.Type): boolean {
-  const signatures = type.getCallSignatures();
-  return signatures && signatures.length != 0;
-}
-
-function signaturesOf(type: ts.Type, context: TypeContext): Signature[] {
-  return type.getCallSignatures().map(s => new SignatureWrapper(s, context));
-}
-
-function selectSignature(type: ts.Type, context: TypeContext, types: Symbol[]): Signature|
-    undefined {
-  // TODO: Do a better job of selecting the right signature.
-  const signatures = type.getCallSignatures();
-  return signatures.length ? new SignatureWrapper(signatures[0], context) : undefined;
-}
-
-function toSymbolTable(symbols: ts.Symbol[]): ts.SymbolTable {
-  const result: ts.SymbolTable = <any>{};
-  for (const symbol of symbols) {
-    result[symbol.name] = symbol;
-  }
-  return result;
-}
-
-function toSymbols(symbolTable: ts.SymbolTable, filter?: (symbol: ts.Symbol) => boolean) {
-  const result: ts.Symbol[] = [];
-  const own = typeof symbolTable.hasOwnProperty === 'function' ?
-      (name: string) => symbolTable.hasOwnProperty(name) :
-      (name: string) => !!symbolTable[name];
-  for (const name in symbolTable) {
-    if (own(name) && (!filter || filter(symbolTable[name]))) {
-      result.push(symbolTable[name]);
-    }
-  }
-  return result;
-}
-
-class TypeWrapper implements Symbol {
-  constructor(public tsType: ts.Type, public context: TypeContext) {
-    if (!tsType) {
-      throw Error('Internal: null type');
-    }
-  }
-
-  get name(): string {
-    const symbol = this.tsType.symbol;
-    return (symbol && symbol.name) || '<anonymous>';
-  }
-
-  get kind(): CompletionKind { return 'type'; }
-
-  get language(): string { return 'typescript'; }
-
-  get type(): Symbol|undefined { return undefined; }
-
-  get container(): Symbol|undefined { return undefined; }
-
-  get public(): boolean { return true; }
-
-  get callable(): boolean { return typeCallable(this.tsType); }
-
-  get definition(): Definition { return definitionFromTsSymbol(this.tsType.getSymbol()); }
-
-  members(): SymbolTable {
-    return new SymbolTableWrapper(this.tsType.getProperties(), this.context);
-  }
-
-  signatures(): Signature[] { return signaturesOf(this.tsType, this.context); }
-
-  selectSignature(types: Symbol[]): Signature|undefined {
-    return selectSignature(this.tsType, this.context, types);
-  }
-
-  indexed(argument: Symbol): Symbol|undefined { return undefined; }
-}
-
-class SymbolWrapper implements Symbol {
-  private _tsType: ts.Type;
-
-  constructor(private symbol: ts.Symbol, private context: TypeContext) {}
-
-  get name(): string { return this.symbol.name; }
-
-  get kind(): CompletionKind { return this.callable ? 'method' : 'property'; }
-
-  get language(): string { return 'typescript'; }
-
-  get type(): Symbol|undefined { return new TypeWrapper(this.tsType, this.context); }
-
-  get container(): Symbol|undefined { return getContainerOf(this.symbol, this.context); }
-
-  get public(): boolean {
-    // Symbols that are not explicitly made private are public.
-    return !isSymbolPrivate(this.symbol);
-  }
-
-  get callable(): boolean { return typeCallable(this.tsType); }
-
-  get definition(): Definition { return definitionFromTsSymbol(this.symbol); }
-
-  members(): SymbolTable { return new SymbolTableWrapper(this.symbol.members, this.context); }
-
-  signatures(): Signature[] { return signaturesOf(this.tsType, this.context); }
-
-  selectSignature(types: Symbol[]): Signature|undefined {
-    return selectSignature(this.tsType, this.context, types);
-  }
-
-  indexed(argument: Symbol): Symbol|undefined { return undefined; }
-
-  private get tsType(): ts.Type {
-    let type = this._tsType;
-    if (!type) {
-      type = this._tsType =
-          this.context.checker.getTypeOfSymbolAtLocation(this.symbol, this.context.node);
-    }
-    return type;
-  }
-}
-
-class DeclaredSymbol implements Symbol {
-  constructor(private declaration: SymbolDeclaration) {}
-
-  get name() { return this.declaration.name; }
-
-  get kind() { return this.declaration.kind; }
-
-  get language(): string { return 'ng-template'; }
-
-  get container(): Symbol|undefined { return undefined; }
-
-  get type() { return this.declaration.type; }
-
-  get callable(): boolean { return this.declaration.type.callable; }
-
-  get public(): boolean { return true; }
-
-  get definition(): Definition { return this.declaration.definition; }
-
-  members(): SymbolTable { return this.declaration.type.members(); }
-
-  signatures(): Signature[] { return this.declaration.type.signatures(); }
-
-  selectSignature(types: Symbol[]): Signature|undefined {
-    return this.declaration.type.selectSignature(types);
-  }
-
-  indexed(argument: Symbol): Symbol|undefined { return undefined; }
-}
-
-class SignatureWrapper implements Signature {
-  constructor(private signature: ts.Signature, private context: TypeContext) {}
-
-  get arguments(): SymbolTable {
-    return new SymbolTableWrapper(this.signature.getParameters(), this.context);
-  }
-
-  get result(): Symbol { return new TypeWrapper(this.signature.getReturnType(), this.context); }
-}
-
-class SignatureResultOverride implements Signature {
-  constructor(private signature: Signature, private resultType: Symbol) {}
-
-  get arguments(): SymbolTable { return this.signature.arguments; }
-
-  get result(): Symbol { return this.resultType; }
-}
-
-class SymbolTableWrapper implements SymbolTable {
-  private symbols: ts.Symbol[];
-  private symbolTable: ts.SymbolTable;
-
-  constructor(
-      symbols: ts.SymbolTable|ts.Symbol[], private context: TypeContext,
-      filter?: (symbol: ts.Symbol) => boolean) {
-    if (Array.isArray(symbols)) {
-      this.symbols = filter ? symbols.filter(filter) : symbols;
-      this.symbolTable = toSymbolTable(symbols);
-    } else {
-      this.symbols = toSymbols(symbols, filter);
-      this.symbolTable = filter ? toSymbolTable(this.symbols) : symbols;
-    }
-  }
-
-  get size(): number { return this.symbols.length; }
-
-  get(key: string): Symbol|undefined {
-    const symbol = this.symbolTable[key];
-    return symbol ? new SymbolWrapper(symbol, this.context) : undefined;
-  }
-
-  has(key: string): boolean { return this.symbolTable[key] != null; }
-
-  values(): Symbol[] { return this.symbols.map(s => new SymbolWrapper(s, this.context)); }
-}
-
-class MapSymbolTable implements SymbolTable {
-  private map = new Map<string, Symbol>();
-  private _values: Symbol[] = [];
-
-  get size(): number { return this.map.size; }
-
-  get(key: string): Symbol|undefined { return this.map.get(key); }
-
-  add(symbol: Symbol) {
-    if (this.map.has(symbol.name)) {
-      const previous = this.map.get(symbol.name);
-      this._values[this._values.indexOf(previous)] = symbol;
-    }
-    this.map.set(symbol.name, symbol);
-    this._values.push(symbol);
-  }
-
-  addAll(symbols: Symbol[]) {
-    for (const symbol of symbols) {
-      this.add(symbol);
-    }
-  }
-
-  has(key: string): boolean { return this.map.has(key); }
-
-  values(): Symbol[] {
-    // Switch to this.map.values once iterables are supported by the target language.
-    return this._values;
-  }
-}
-
-class PipesTable implements SymbolTable {
-  constructor(private pipes: Pipes, private context: TypeContext) {}
-
-  get size() { return this.pipes.length; }
-
-  get(key: string): Symbol {
-    const pipe = this.pipes.find(pipe => pipe.name == key);
-    if (pipe) {
-      return new PipeSymbol(pipe, this.context);
-    }
-  }
-
-  has(key: string): boolean { return this.pipes.find(pipe => pipe.name == key) != null; }
-
-  values(): Symbol[] { return this.pipes.map(pipe => new PipeSymbol(pipe, this.context)); }
-}
-
-class PipeSymbol implements Symbol {
-  private _tsType: ts.Type;
-
-  constructor(private pipe: PipeInfo, private context: TypeContext) {}
-
-  get name(): string { return this.pipe.name; }
-
-  get kind(): CompletionKind { return 'pipe'; }
-
-  get language(): string { return 'typescript'; }
-
-  get type(): Symbol|undefined { return new TypeWrapper(this.tsType, this.context); }
-
-  get container(): Symbol|undefined { return undefined; }
-
-  get callable(): boolean { return true; }
-
-  get public(): boolean { return true; }
-
-  get definition(): Definition { return definitionFromTsSymbol(this.tsType.getSymbol()); }
-
-  members(): SymbolTable { return EmptyTable.instance; }
-
-  signatures(): Signature[] { return signaturesOf(this.tsType, this.context); }
-
-  selectSignature(types: Symbol[]): Signature|undefined {
-    let signature = selectSignature(this.tsType, this.context, types);
-    if (types.length == 1) {
-      const parameterType = types[0];
-      if (parameterType instanceof TypeWrapper) {
-        let resultType: ts.Type = undefined;
-        switch (this.name) {
-          case 'async':
-            switch (parameterType.name) {
-              case 'Observable':
-              case 'Promise':
-              case 'EventEmitter':
-                resultType = getTypeParameterOf(parameterType.tsType, parameterType.name);
-                break;
-            }
-            break;
-          case 'slice':
-            resultType = getTypeParameterOf(parameterType.tsType, 'Array');
-            break;
-        }
-        if (resultType) {
-          signature = new SignatureResultOverride(
-              signature, new TypeWrapper(resultType, parameterType.context));
-        }
-      }
-    }
-    return signature;
-  }
-
-  indexed(argument: Symbol): Symbol|undefined { return undefined; }
-
-  private get tsType(): ts.Type {
-    let type = this._tsType;
-    if (!type) {
-      const classSymbol = this.findClassSymbol(this.pipe.symbol);
-      if (classSymbol) {
-        type = this._tsType = this.findTransformMethodType(classSymbol);
-      }
-      if (!type) {
-        type = this._tsType = getBuiltinTypeFromTs(BuiltinType.Any, this.context);
-      }
-    }
-    return type;
-  }
-
-  private findClassSymbol(type: StaticSymbol): ts.Symbol {
-    return findClassSymbolInContext(type, this.context);
-  }
-
-  private findTransformMethodType(classSymbol: ts.Symbol): ts.Type {
-    const transform = classSymbol.members['transform'];
-    if (transform) {
-      return this.context.checker.getTypeOfSymbolAtLocation(transform, this.context.node);
-    }
-  }
-}
-
-function findClassSymbolInContext(type: StaticSymbol, context: TypeContext): ts.Symbol {
-  const sourceFile = context.program.getSourceFile(type.filePath);
-  if (sourceFile) {
-    const moduleSymbol = (sourceFile as any).module || (sourceFile as any).symbol;
-    const exports = context.checker.getExportsOfModule(moduleSymbol);
-    return (exports || []).find(symbol => symbol.name == type.name);
-  }
-}
-
-class EmptyTable implements SymbolTable {
-  get size(): number { return 0; }
-  get(key: string): Symbol|undefined { return undefined; }
-  has(key: string): boolean { return false; }
-  values(): Symbol[] { return []; }
-  static instance = new EmptyTable();
-}
-
-function findTsConfig(fileName: string): string {
+function findTsConfig(fileName: string): string|undefined {
   let dir = path.dirname(fileName);
   while (fs.existsSync(dir)) {
     const candidate = path.join(dir, 'tsconfig.json');
     if (fs.existsSync(candidate)) return candidate;
-    dir = path.dirname(dir);
+    const parentDir = path.dirname(dir);
+    if (parentDir === dir) break;
+    dir = parentDir;
   }
-}
-
-function isBindingPattern(node: ts.Node): node is ts.BindingPattern {
-  return !!node && (node.kind === ts.SyntaxKind.ArrayBindingPattern ||
-                    node.kind === ts.SyntaxKind.ObjectBindingPattern);
-}
-
-function walkUpBindingElementsAndPatterns(node: ts.Node): ts.Node {
-  while (node && (node.kind === ts.SyntaxKind.BindingElement || isBindingPattern(node))) {
-    node = node.parent;
-  }
-
-  return node;
-}
-
-function getCombinedNodeFlags(node: ts.Node): ts.NodeFlags {
-  node = walkUpBindingElementsAndPatterns(node);
-
-  let flags = node.flags;
-  if (node.kind === ts.SyntaxKind.VariableDeclaration) {
-    node = node.parent;
-  }
-
-  if (node && node.kind === ts.SyntaxKind.VariableDeclarationList) {
-    flags |= node.flags;
-    node = node.parent;
-  }
-
-  if (node && node.kind === ts.SyntaxKind.VariableStatement) {
-    flags |= node.flags;
-  }
-
-  return flags;
-}
-
-function isSymbolPrivate(s: ts.Symbol): boolean {
-  return s.valueDeclaration && isPrivate(s.valueDeclaration);
-}
-
-function getBuiltinTypeFromTs(kind: BuiltinType, context: TypeContext): ts.Type {
-  let type: ts.Type;
-  const checker = context.checker;
-  const node = context.node;
-  switch (kind) {
-    case BuiltinType.Any:
-      type = checker.getTypeAtLocation(setParents(
-          <ts.Node><any>{
-            kind: ts.SyntaxKind.AsExpression,
-            expression: <ts.Node>{kind: ts.SyntaxKind.TrueKeyword},
-            type: <ts.Node>{kind: ts.SyntaxKind.AnyKeyword}
-          },
-          node));
-      break;
-    case BuiltinType.Boolean:
-      type =
-          checker.getTypeAtLocation(setParents(<ts.Node>{kind: ts.SyntaxKind.TrueKeyword}, node));
-      break;
-    case BuiltinType.Null:
-      type =
-          checker.getTypeAtLocation(setParents(<ts.Node>{kind: ts.SyntaxKind.NullKeyword}, node));
-      break;
-    case BuiltinType.Number:
-      const numeric = <ts.Node>{kind: ts.SyntaxKind.NumericLiteral};
-      setParents(<any>{kind: ts.SyntaxKind.ExpressionStatement, expression: numeric}, node);
-      type = checker.getTypeAtLocation(numeric);
-      break;
-    case BuiltinType.String:
-      type = checker.getTypeAtLocation(
-          setParents(<ts.Node>{kind: ts.SyntaxKind.NoSubstitutionTemplateLiteral}, node));
-      break;
-    case BuiltinType.Undefined:
-      type = checker.getTypeAtLocation(setParents(
-          <ts.Node><any>{
-            kind: ts.SyntaxKind.VoidExpression,
-            expression: <ts.Node>{kind: ts.SyntaxKind.NumericLiteral}
-          },
-          node));
-      break;
-    default:
-      throw new Error(`Internal error, unhandled literal kind ${kind}:${BuiltinType[kind]}`);
-  }
-  return type;
-}
-
-function setParents<T extends ts.Node>(node: T, parent: ts.Node): T {
-  node.parent = parent;
-  ts.forEachChild(node, child => setParents(child, node));
-  return node;
 }
 
 function spanOf(node: ts.Node): Span {
@@ -1154,10 +583,10 @@ function shrink(span: Span, offset?: number) {
   return {start: span.start + offset, end: span.end - offset};
 }
 
-function spanAt(sourceFile: ts.SourceFile, line: number, column: number): Span {
+function spanAt(sourceFile: ts.SourceFile, line: number, column: number): Span|undefined {
   if (line != null && column != null) {
     const position = ts.getPositionOfLineAndCharacter(sourceFile, line, column);
-    const findChild = function findChild(node: ts.Node): ts.Node {
+    const findChild = function findChild(node: ts.Node): ts.Node | undefined {
       if (node.kind > ts.SyntaxKind.LastToken && node.pos <= position && node.end > position) {
         const betterNode = ts.forEachChild(node, findChild);
         return betterNode || node;
@@ -1169,86 +598,4 @@ function spanAt(sourceFile: ts.SourceFile, line: number, column: number): Span {
       return {start: node.getStart(), end: node.getEnd()};
     }
   }
-}
-
-function definitionFromTsSymbol(symbol: ts.Symbol): Definition {
-  const declarations = symbol.declarations;
-  if (declarations) {
-    return declarations.map(declaration => {
-      const sourceFile = declaration.getSourceFile();
-      return {
-        fileName: sourceFile.fileName,
-        span: {start: declaration.getStart(), end: declaration.getEnd()}
-      };
-    });
-  }
-}
-
-function parentDeclarationOf(node: ts.Node): ts.Node {
-  while (node) {
-    switch (node.kind) {
-      case ts.SyntaxKind.ClassDeclaration:
-      case ts.SyntaxKind.InterfaceDeclaration:
-        return node;
-      case ts.SyntaxKind.SourceFile:
-        return null;
-    }
-    node = node.parent;
-  }
-}
-
-function getContainerOf(symbol: ts.Symbol, context: TypeContext): Symbol {
-  if (symbol.getFlags() & ts.SymbolFlags.ClassMember && symbol.declarations) {
-    for (const declaration of symbol.declarations) {
-      const parent = parentDeclarationOf(declaration);
-      if (parent) {
-        const type = context.checker.getTypeAtLocation(parent);
-        if (type) {
-          return new TypeWrapper(type, context);
-        }
-      }
-    }
-  }
-}
-
-function getTypeParameterOf(type: ts.Type, name: string): ts.Type {
-  if (type && type.symbol && type.symbol.name == name) {
-    const typeArguments: ts.Type[] = (type as any).typeArguments;
-    if (typeArguments && typeArguments.length <= 1) {
-      return typeArguments[0];
-    }
-  }
-}
-
-function typeKindOf(type: ts.Type): BuiltinType {
-  if (type) {
-    if (type.flags & ts.TypeFlags.Any) {
-      return BuiltinType.Any;
-    } else if (
-        type.flags & (ts.TypeFlags.String | ts.TypeFlags.StringLike | ts.TypeFlags.StringLiteral)) {
-      return BuiltinType.String;
-    } else if (type.flags & (ts.TypeFlags.Number | ts.TypeFlags.NumberLike)) {
-      return BuiltinType.Number;
-    } else if (type.flags & (ts.TypeFlags.Undefined)) {
-      return BuiltinType.Undefined;
-    } else if (type.flags & (ts.TypeFlags.Null)) {
-      return BuiltinType.Null;
-    } else if (type.flags & ts.TypeFlags.Union) {
-      // If all the constituent types of a union are the same kind, it is also that kind.
-      let candidate: BuiltinType;
-      const unionType = type as ts.UnionType;
-      if (unionType.types.length > 0) {
-        candidate = typeKindOf(unionType.types[0]);
-        for (const subType of unionType.types) {
-          if (candidate != typeKindOf(subType)) {
-            return BuiltinType.Other;
-          }
-        }
-      }
-      return candidate;
-    } else if (type.flags & ts.TypeFlags.TypeParameter) {
-      return BuiltinType.Unbound;
-    }
-  }
-  return BuiltinType.Other;
 }

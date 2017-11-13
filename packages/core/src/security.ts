@@ -16,12 +16,12 @@
  * @stable
  */
 export enum SecurityContext {
-  NONE,
-  HTML,
-  STYLE,
-  SCRIPT,
-  URL,
-  RESOURCE_URL,
+  NONE = 0,
+  HTML = 1,
+  STYLE = 2,
+  SCRIPT = 3,
+  URL = 4,
+  RESOURCE_URL = 5,
 }
 
 /**
@@ -30,5 +30,5 @@ export enum SecurityContext {
  * @stable
  */
 export abstract class Sanitizer {
-  abstract sanitize(context: SecurityContext, value: string): string;
+  abstract sanitize(context: SecurityContext, value: {}|string|null): string|null;
 }

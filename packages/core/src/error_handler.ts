@@ -42,13 +42,6 @@ export class ErrorHandler {
    */
   _console: Console = console;
 
-  /**
-   * @internal
-   */
-  rethrowError: boolean;
-
-  constructor(rethrowError: boolean = false) { this.rethrowError = rethrowError; }
-
   handleError(error: any): void {
     const originalError = this._findOriginalError(error);
     const context = this._findContext(error);
@@ -63,8 +56,6 @@ export class ErrorHandler {
     if (context) {
       errorLogger(this._console, 'ERROR CONTEXT', context);
     }
-
-    if (this.rethrowError) throw error;
   }
 
   /** @internal */

@@ -54,7 +54,8 @@ export interface DirectiveDecorator {
    *
    * **Metadata Properties:**
    *
-   * * **exportAs** - name under which the component instance is exported in a template
+   * * **exportAs** - name under which the component instance is exported in a template. Can be
+   * given a single name or a comma-delimited list of names.
    * * **host** - map of class property to host element bindings for events, properties and
    * attributes
    * * **inputs** - list of class property names to data-bind as component inputs
@@ -399,15 +400,8 @@ export interface Directive {
  * @stable
  * @Annotation
  */
-export const Directive: DirectiveDecorator = <DirectiveDecorator>makeDecorator('Directive', {
-  selector: undefined,
-  inputs: undefined,
-  outputs: undefined,
-  host: undefined,
-  providers: undefined,
-  exportAs: undefined,
-  queries: undefined
-});
+export const Directive: DirectiveDecorator =
+    makeDecorator('Directive', (dir: Directive = {}) => dir);
 
 /**
  * Type of the Component decorator / constructor function.
@@ -639,7 +633,7 @@ export interface Component extends Directive {
    * ### DSL Animation Functions
    *
    * Please visit each of the animation DSL functions listed below to gain a better understanding
-   * of how and why they are used for crafting animations in Angular2:
+   * of how and why they are used for crafting animations in Angular:
    *
    * - {@link trigger trigger()}
    * - {@link state state()}
@@ -662,8 +656,8 @@ export interface Component extends Directive {
    *   encapsulation.
    *
    * When no `encapsulation` is defined for the component, the default value from the
-   * {@link CompilerConfig} is used. The default is `ViewEncapsulation.Emulated`}. Provide a new
-   * `CompilerConfig` to override this value.
+   * {@link CompilerOptions} is used. The default is `ViewEncapsulation.Emulated`}. Provide a new
+   * `CompilerOptions` to override this value.
    *
    * If the encapsulation is set to `ViewEncapsulation.Emulated` and the component has no `styles`
    * nor `styleUrls` the encapsulation will automatically be switched to `ViewEncapsulation.None`.
@@ -682,6 +676,74 @@ export interface Component extends Directive {
    * {@link ComponentFactoryResolver}.
    */
   entryComponents?: Array<Type<any>|any[]>;
+
+  /**
+   * If {@link Component#preserveWhitespaces Component.preserveWhitespaces} is set to `false`
+   * potentially superfluous whitespace characters (ones matching the `\s` character class in
+   * JavaScript regular expressions) will be removed from a compiled template. This can greatly
+   * reduce AOT-generated code size as well as speed up view creation.
+   *
+   * Current implementation works according to the following rules:
+   * - all whitespaces at the beginning and the end of a template are removed (trimmed);
+   * - text nodes consisting of whitespaces only are removed (ex.:
+   *   `<button>Action 1</button>  <button>Action 2</button>` will be converted to
+   *   `<button>Action 1</button><button>Action 2</button>` (no whitespaces between buttons);
+   * - series of whitespaces in text nodes are replaced with one space (ex.:
+   *   `<span>\n some text\n</span>` will be converted to `<span> some text </span>`);
+   * - text nodes are left as-is inside HTML tags where whitespaces are significant (ex. `<pre>`,
+   *   `<textarea>`).
+   *
+   * Described transformations can (potentially) influence DOM nodes layout so the
+   * `preserveWhitespaces` option is `true` be default (no whitespace removal).
+   * In Angular 5 you need to opt-in for whitespace removal (but we might revisit the default
+   * setting in Angular 6 or later). If you want to change the default setting for all components
+   * in your application you can use the `preserveWhitespaces` option of the AOT compiler.
+   *
+   * Even if you decide to opt-in for whitespace removal there are ways of preserving whitespaces
+   * in certain fragments of a template. You can either exclude entire DOM sub-tree by using the
+   * `ngPreserveWhitespaces` attribute, ex.:
+   *
+   * ```html
+   * <div ngPreserveWhitespaces>
+   *     whitespaces are preserved here
+   *     <span>    and here </span>
+   * </div>
+   * ```
+   *
+   * Alternatively you can force a space to be preserved in a text node by using the `&ngsp;`
+   * pseudo-entity. `&ngsp;` will be replaced with a space character by Angular's template
+   * compiler, ex.:
+   *
+   * ```html
+   * <a>Spaces</a>&ngsp;<a>between</a>&ngsp;<a>links.</a>
+   * ```
+   *
+   * will be compiled to the equivalent of:
+   *
+   * ```html
+   * <a>Spaces</a> <a>between</a> <a>links.</a>
+   * ```
+   *
+   * Please note that sequences of `&ngsp;` are still collapsed to just one space character when
+   * the `preserveWhitespaces` option is set to `false`. Ex.:
+   *
+   * ```html
+   * <a>before</a>&ngsp;&ngsp;&ngsp;<a>after</a>
+   * ```
+   *
+   * would be equivalent to:
+   *
+   * ```html
+   * <a>before</a> <a>after</a>
+   * ```
+   *
+   * The `&ngsp;` pseudo-entity is useful for forcing presence of
+   * one space (a text node having `&ngsp;` pseudo-entities will never be removed), but it is not
+   * meant to mark sequences of whitespace characters. The previously described
+   * `ngPreserveWhitespaces` attribute is more useful for preserving sequences of whitespace
+   * characters.
+   */
+  preserveWhitespaces?: boolean;
 }
 
 /**
@@ -690,27 +752,8 @@ export interface Component extends Directive {
  * @stable
  * @Annotation
  */
-export const Component: ComponentDecorator = <ComponentDecorator>makeDecorator(
-    'Component', {
-      selector: undefined,
-      inputs: undefined,
-      outputs: undefined,
-      host: undefined,
-      exportAs: undefined,
-      moduleId: undefined,
-      providers: undefined,
-      viewProviders: undefined,
-      changeDetection: ChangeDetectionStrategy.Default,
-      queries: undefined,
-      templateUrl: undefined,
-      template: undefined,
-      styleUrls: undefined,
-      styles: undefined,
-      animations: undefined,
-      encapsulation: undefined,
-      interpolation: undefined,
-      entryComponents: undefined
-    },
+export const Component: ComponentDecorator = makeDecorator(
+    'Component', (c: Component = {}) => ({changeDetection: ChangeDetectionStrategy.Default, ...c}),
     Directive);
 
 /**
@@ -750,10 +793,7 @@ export interface Pipe {
  * @stable
  * @Annotation
  */
-export const Pipe: PipeDecorator = <PipeDecorator>makeDecorator('Pipe', {
-  name: undefined,
-  pure: true,
-});
+export const Pipe: PipeDecorator = makeDecorator('Pipe', (p: Pipe) => ({pure: true, ...p}));
 
 
 /**
@@ -825,7 +865,7 @@ export interface Input {
  * @Annotation
  */
 export const Input: InputDecorator =
-    makePropDecorator('Input', [['bindingPropertyName', undefined]]);
+    makePropDecorator('Input', (bindingPropertyName?: string) => ({bindingPropertyName}));
 
 /**
  * Type of the Output decorator / constructor function.
@@ -891,7 +931,7 @@ export interface Output { bindingPropertyName?: string; }
  * @Annotation
  */
 export const Output: OutputDecorator =
-    makePropDecorator('Output', [['bindingPropertyName', undefined]]);
+    makePropDecorator('Output', (bindingPropertyName?: string) => ({bindingPropertyName}));
 
 
 /**
@@ -951,7 +991,7 @@ export interface HostBinding { hostPropertyName?: string; }
  * @Annotation
  */
 export const HostBinding: HostBindingDecorator =
-    makePropDecorator('HostBinding', [['hostPropertyName', undefined]]);
+    makePropDecorator('HostBinding', (hostPropertyName?: string) => ({hostPropertyName}));
 
 
 /**
@@ -1013,4 +1053,4 @@ export interface HostListener {
  * @Annotation
  */
 export const HostListener: HostListenerDecorator =
-    makePropDecorator('HostListener', [['eventName', undefined], ['args', []]]);
+    makePropDecorator('HostListener', (eventName?: string, args?: string[]) => ({eventName, args}));

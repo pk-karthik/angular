@@ -6,15 +6,19 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {ANALYZE_FOR_ENTRY_COMPONENTS, Component, Directive, InjectionToken, Injector, Input, Pipe, PipeTransform, Provider, QueryList, Renderer2, TemplateRef, ViewChildren, ViewContainerRef} from '@angular/core';
-import {TestBed} from '@angular/core/testing';
-import {By} from '@angular/platform-browser';
+import {ANALYZE_FOR_ENTRY_COMPONENTS, ApplicationRef, Component, ComponentRef, ContentChild, Directive, ErrorHandler, EventEmitter, HostListener, InjectionToken, Injector, Input, NgModule, NgModuleRef, NgZone, Output, Pipe, PipeTransform, Provider, QueryList, Renderer2, SimpleChanges, TemplateRef, ViewChildren, ViewContainerRef, destroyPlatform} from '@angular/core';
+import {TestBed, async, fakeAsync, inject, tick} from '@angular/core/testing';
+import {BrowserModule, By, DOCUMENT} from '@angular/platform-browser';
+import {platformBrowserDynamic} from '@angular/platform-browser-dynamic';
+import {getDOM} from '@angular/platform-browser/src/dom/dom_adapter';
 import {expect} from '@angular/platform-browser/testing/src/matchers';
 
 export function main() {
   describe('jit', () => { declareTests({useJit: true}); });
 
   describe('no jit', () => { declareTests({useJit: false}); });
+
+  declareTestsUsingBootstrap();
 }
 
 function declareTests({useJit}: {useJit: boolean}) {
@@ -67,6 +71,43 @@ function declareTests({useJit}: {useJit: boolean}) {
         expect(fixture.nativeElement).toHaveText('counting pipe value');
         expect(CountingPipe.calls).toBe(1);
       });
+
+      it('should only update the bound property when using asyncPipe - #15205', fakeAsync(() => {
+           @Component({template: '<div myDir [a]="p | async" [b]="2"></div>'})
+           class MyComp {
+             p = Promise.resolve(1);
+           }
+
+           @Directive({selector: '[myDir]'})
+           class MyDir {
+             setterCalls: {[key: string]: any} = {};
+             changes: SimpleChanges;
+
+             @Input()
+             set a(v: number) { this.setterCalls['a'] = v; }
+             @Input()
+             set b(v: number) { this.setterCalls['b'] = v; }
+
+             ngOnChanges(changes: SimpleChanges) { this.changes = changes; }
+           }
+
+           TestBed.configureTestingModule({declarations: [MyDir, MyComp]});
+           const fixture = TestBed.createComponent(MyComp);
+           const dir = fixture.debugElement.query(By.directive(MyDir)).injector.get(MyDir) as MyDir;
+
+           fixture.detectChanges();
+           expect(dir.setterCalls).toEqual({'a': null, 'b': 2});
+           expect(Object.keys(dir.changes)).toEqual(['a', 'b']);
+
+           dir.setterCalls = {};
+           dir.changes = {};
+
+           tick();
+           fixture.detectChanges();
+
+           expect(dir.setterCalls).toEqual({'a': 1});
+           expect(Object.keys(dir.changes)).toEqual(['a']);
+         }));
 
       it('should only evaluate methods once - #10639', () => {
         TestBed.configureTestingModule({declarations: [MyCountingComp]});
@@ -201,14 +242,14 @@ function declareTests({useJit}: {useJit: boolean}) {
         return MyComponent;
       }
       const HeroComponent = ComponentFactory('my-hero', 'my hero');
-      const VillianComponent = ComponentFactory('a-villian', 'a villian');
+      const VillainComponent = ComponentFactory('a-villain', 'a villain');
       const MainComponent = ComponentFactory(
-          'my-app', 'I was saved by <my-hero></my-hero> from <a-villian></a-villian>.');
+          'my-app', 'I was saved by <my-hero></my-hero> from <a-villain></a-villain>.');
 
       TestBed.configureTestingModule(
-          {declarations: [HeroComponent, VillianComponent, MainComponent]});
+          {declarations: [HeroComponent, VillainComponent, MainComponent]});
       const fixture = TestBed.createComponent(MainComponent);
-      expect(fixture.nativeElement).toHaveText('I was saved by my hero from a villian.');
+      expect(fixture.nativeElement).toHaveText('I was saved by my hero from a villain.');
     });
 
     it('should allow to use the renderer outside of views', () => {
@@ -269,6 +310,191 @@ function declareTests({useJit}: {useJit: boolean}) {
       ctx.detectChanges();
       expect(ctx.componentInstance.viewContainers.first).toBe(vc);
     });
+
+    describe('empty templates - #15143', () => {
+      it('should allow empty components', () => {
+        @Component({template: ''})
+        class MyComp {
+        }
+
+        const fixture =
+            TestBed.configureTestingModule({declarations: [MyComp]}).createComponent(MyComp);
+        fixture.detectChanges();
+
+        expect(fixture.debugElement.childNodes.length).toBe(0);
+      });
+
+      it('should allow empty embedded templates', () => {
+        @Component({template: '<ng-template [ngIf]="true"></ng-template>'})
+        class MyComp {
+        }
+
+        const fixture =
+            TestBed.configureTestingModule({declarations: [MyComp]}).createComponent(MyComp);
+        fixture.detectChanges();
+
+        // Note: We always need to create at least a comment in an embedded template,
+        // so we can append other templates after it.
+        // 1 comment for the anchor,
+        // 1 comment for the empty embedded template.
+        expect(fixture.debugElement.childNodes.length).toBe(2);
+      });
+    });
+
+    it('should support @ContentChild and @Input on the same property for static queries', () => {
+      @Directive({selector: 'test'})
+      class Test {
+        @Input() @ContentChild(TemplateRef) tpl: TemplateRef<any>;
+      }
+
+      @Component({
+        selector: 'my-app',
+        template: `
+          <test></test><br>
+          <test><ng-template>Custom as a child</ng-template></test><br>
+          <ng-template #custom>Custom as a binding</ng-template>
+          <test [tpl]="custom"></test><br>
+        `
+      })
+      class App {
+      }
+
+      const fixture =
+          TestBed.configureTestingModule({declarations: [App, Test]}).createComponent(App);
+      fixture.detectChanges();
+
+      const testDirs =
+          fixture.debugElement.queryAll(By.directive(Test)).map(el => el.injector.get(Test));
+      expect(testDirs[0].tpl).toBeUndefined();
+      expect(testDirs[1].tpl).toBeDefined();
+      expect(testDirs[2].tpl).toBeDefined();
+    });
+
+    it('should not add ng-version for dynamically created components', () => {
+      @Component({template: ''})
+      class App {
+      }
+
+      @NgModule({declarations: [App], entryComponents: [App]})
+      class MyModule {
+      }
+
+      const modRef = TestBed.configureTestingModule({imports: [MyModule]})
+                         .get(NgModuleRef) as NgModuleRef<MyModule>;
+      const compRef =
+          modRef.componentFactoryResolver.resolveComponentFactory(App).create(Injector.NULL);
+
+      expect(getDOM().hasAttribute(compRef.location.nativeElement, 'ng-version')).toBe(false);
+    });
+  });
+}
+
+function declareTestsUsingBootstrap() {
+  // Place to put reproductions for regressions
+  describe('regressions using bootstrap', () => {
+    const COMP_SELECTOR = 'root-comp';
+
+    class MockConsole {
+      errors: any[][] = [];
+      error(...s: any[]): void { this.errors.push(s); }
+    }
+
+    let logger: MockConsole;
+    let errorHandler: ErrorHandler;
+
+    beforeEach(inject([DOCUMENT], (doc: any) => {
+      destroyPlatform();
+      const el = getDOM().createElement(COMP_SELECTOR, doc);
+      getDOM().appendChild(doc.body, el);
+
+      logger = new MockConsole();
+      errorHandler = new ErrorHandler();
+      errorHandler._console = logger as any;
+    }));
+
+    afterEach(() => { destroyPlatform(); });
+
+    if (getDOM().supportsDOMEvents()) {
+      // This test needs a real DOM....
+
+      it('should keep change detecting if there was an error', (done) => {
+        @Component({
+          selector: COMP_SELECTOR,
+          template:
+              '<button (click)="next()"></button><button (click)="nextAndThrow()"></button><button (dirClick)="nextAndThrow()"></button><span>Value:{{value}}</span><span>{{throwIfNeeded()}}</span>'
+        })
+        class ErrorComp {
+          value = 0;
+          thrownValue = 0;
+          next() { this.value++; }
+          nextAndThrow() {
+            this.value++;
+            this.throwIfNeeded();
+          }
+          throwIfNeeded() {
+            NgZone.assertInAngularZone();
+            if (this.thrownValue !== this.value) {
+              this.thrownValue = this.value;
+              throw new Error(`Error: ${this.value}`);
+            }
+          }
+        }
+
+        @Directive({selector: '[dirClick]'})
+        class EventDir {
+          @Output()
+          dirClick = new EventEmitter();
+
+          @HostListener('click', ['$event'])
+          onClick(event: any) { this.dirClick.next(event); }
+        }
+
+        @NgModule({
+          imports: [BrowserModule],
+          declarations: [ErrorComp, EventDir],
+          bootstrap: [ErrorComp],
+          providers: [{provide: ErrorHandler, useValue: errorHandler}],
+        })
+        class TestModule {
+        }
+
+        platformBrowserDynamic().bootstrapModule(TestModule).then((ref) => {
+          NgZone.assertNotInAngularZone();
+          const appRef = ref.injector.get(ApplicationRef) as ApplicationRef;
+          const compRef = appRef.components[0] as ComponentRef<ErrorComp>;
+          const compEl = compRef.location.nativeElement;
+          const nextBtn = compEl.children[0];
+          const nextAndThrowBtn = compEl.children[1];
+          const nextAndThrowDirBtn = compEl.children[2];
+
+          nextBtn.click();
+          assertValueAndErrors(compEl, 1, 0);
+          nextBtn.click();
+          assertValueAndErrors(compEl, 2, 2);
+
+          nextAndThrowBtn.click();
+          assertValueAndErrors(compEl, 3, 4);
+          nextAndThrowBtn.click();
+          assertValueAndErrors(compEl, 4, 6);
+
+          nextAndThrowDirBtn.click();
+          assertValueAndErrors(compEl, 5, 8);
+          nextAndThrowDirBtn.click();
+          assertValueAndErrors(compEl, 6, 10);
+
+          // Assert that there were no more errors
+          expect(logger.errors.length).toBe(12);
+          done();
+        });
+
+        function assertValueAndErrors(compEl: any, value: number, errorIndex: number) {
+          expect(compEl).toHaveText(`Value:${value}`);
+          expect(logger.errors[errorIndex][0]).toBe('ERROR');
+          expect(logger.errors[errorIndex][1].message).toBe(`Error: ${value}`);
+          expect(logger.errors[errorIndex + 1][0]).toBe('ERROR CONTEXT');
+        }
+      });
+    }
   });
 }
 

@@ -45,7 +45,7 @@ export class NgForOfContext<T> {
  * - `odd: boolean`: True when the item has an odd index in the iterable.
  *
  * ```
- * <li *ngFor="let user of userObservable | async as users; indexes as i; first as isFirst">
+ * <li *ngFor="let user of userObservable | async as users; index as i; first as isFirst">
  *    {{i}}/{{users.length}}. {{user}} <span *ngIf="isFirst">default</span>
  * </li>
  * ```
@@ -78,8 +78,7 @@ export class NgForOfContext<T> {
  *
  * ### Syntax
  *
- * - `<li *ngFor="let item of items; let i = index; trackBy: trackByFn">...</li>`
- * - `<li template="ngFor let item of items; let i = index; trackBy: trackByFn">...</li>`
+ * - `<li *ngFor="let item of items; index as i; trackBy: trackByFn">...</li>`
  *
  * With `<ng-template>` element:
  *
@@ -114,7 +113,7 @@ export class NgForOf<T> implements DoCheck, OnChanges {
 
   get ngForTrackBy(): TrackByFunction<T> { return this._trackByFn; }
 
-  private _differ: IterableDiffer<T> = null;
+  private _differ: IterableDiffer<T>|null = null;
   private _trackByFn: TrackByFunction<T>;
 
   constructor(
@@ -159,13 +158,13 @@ export class NgForOf<T> implements DoCheck, OnChanges {
         (item: IterableChangeRecord<any>, adjustedPreviousIndex: number, currentIndex: number) => {
           if (item.previousIndex == null) {
             const view = this._viewContainer.createEmbeddedView(
-                this._template, new NgForOfContext(null, this.ngForOf, null, null), currentIndex);
-            const tuple = new RecordViewTuple(item, view);
+                this._template, new NgForOfContext<T>(null !, this.ngForOf, -1, -1), currentIndex);
+            const tuple = new RecordViewTuple<T>(item, view);
             insertTuples.push(tuple);
           } else if (currentIndex == null) {
             this._viewContainer.remove(adjustedPreviousIndex);
           } else {
-            const view = this._viewContainer.get(adjustedPreviousIndex);
+            const view = this._viewContainer.get(adjustedPreviousIndex) !;
             this._viewContainer.move(view, currentIndex);
             const tuple = new RecordViewTuple(item, <EmbeddedViewRef<NgForOfContext<T>>>view);
             insertTuples.push(tuple);
@@ -198,16 +197,6 @@ export class NgForOf<T> implements DoCheck, OnChanges {
 class RecordViewTuple<T> {
   constructor(public record: any, public view: EmbeddedViewRef<NgForOfContext<T>>) {}
 }
-
-/**
- * @deprecated from v4.0.0 - Use NgForOf<any> instead.
- */
-export type NgFor = NgForOf<any>;
-
-/**
- * @deprecated from v4.0.0 - Use NgForOf instead.
- */
-export const NgFor = NgForOf;
 
 export function getTypeNameForDebugging(type: any): string {
   return type['name'] || typeof type;

@@ -9,12 +9,14 @@
 import {Type} from '@angular/core';
 import {BehaviorSubject} from 'rxjs/BehaviorSubject';
 import {Observable} from 'rxjs/Observable';
+import {map} from 'rxjs/operator/map';
 
 import {Data, ResolveData, Route} from './config';
-import {PRIMARY_OUTLET, Params} from './shared';
+import {PRIMARY_OUTLET, ParamMap, Params, convertToParamMap} from './shared';
 import {UrlSegment, UrlSegmentGroup, UrlTree, equalSegments} from './url_tree';
-import {merge, shallowEqual, shallowEqualArrays} from './utils/collection';
+import {shallowEqual, shallowEqualArrays} from './utils/collection';
 import {Tree, TreeNode} from './utils/tree';
+
 
 /**
  * @whatItDoes Represents the state of the router.
@@ -36,8 +38,7 @@ import {Tree, TreeNode} from './utils/tree';
  *
  * @description
  * RouterState is a tree of activated routes. Every node in this tree knows about the "consumed" URL
- * segments,
- * the extracted parameters, and the resolved data.
+ * segments, the extracted parameters, and the resolved data.
  *
  * See {@link ActivatedRoute} for more information.
  *
@@ -50,13 +51,13 @@ export class RouterState extends Tree<ActivatedRoute> {
       /** The current snapshot of the router state */
       public snapshot: RouterStateSnapshot) {
     super(root);
-    setRouterStateSnapshot<RouterState, ActivatedRoute>(this, root);
+    setRouterState(<RouterState>this, root);
   }
 
   toString(): string { return this.snapshot.toString(); }
 }
 
-export function createEmptyState(urlTree: UrlTree, rootComponent: Type<any>): RouterState {
+export function createEmptyState(urlTree: UrlTree, rootComponent: Type<any>| null): RouterState {
   const snapshot = createEmptyStateSnapshot(urlTree, rootComponent);
   const emptyUrl = new BehaviorSubject([new UrlSegment('', {})]);
   const emptyParams = new BehaviorSubject({});
@@ -71,7 +72,7 @@ export function createEmptyState(urlTree: UrlTree, rootComponent: Type<any>): Ro
 }
 
 export function createEmptyStateSnapshot(
-    urlTree: UrlTree, rootComponent: Type<any>): RouterStateSnapshot {
+    urlTree: UrlTree, rootComponent: Type<any>| null): RouterStateSnapshot {
   const emptyParams = {};
   const emptyData = {};
   const emptyQueryParams = {};
@@ -110,6 +111,10 @@ export class ActivatedRoute {
   _futureSnapshot: ActivatedRouteSnapshot;
   /** @internal */
   _routerState: RouterState;
+  /** @internal */
+  _paramMap: Observable<ParamMap>;
+  /** @internal */
+  _queryParamMap: Observable<ParamMap>;
 
   /** @internal */
   constructor(
@@ -127,27 +132,42 @@ export class ActivatedRoute {
       public outlet: string,
       /** The component of the route. It's a constant */
       // TODO(vsavkin): remove |string
-      public component: Type<any>|string, futureSnapshot: ActivatedRouteSnapshot) {
+      public component: Type<any>|string|null, futureSnapshot: ActivatedRouteSnapshot) {
     this._futureSnapshot = futureSnapshot;
   }
 
   /** The configuration used to match this route */
-  get routeConfig(): Route { return this._futureSnapshot.routeConfig; }
+  get routeConfig(): Route|null { return this._futureSnapshot.routeConfig; }
 
   /** The root of the router state */
   get root(): ActivatedRoute { return this._routerState.root; }
 
   /** The parent of this route in the router state tree */
-  get parent(): ActivatedRoute { return this._routerState.parent(this); }
+  get parent(): ActivatedRoute|null { return this._routerState.parent(this); }
 
   /** The first child of this route in the router state tree */
-  get firstChild(): ActivatedRoute { return this._routerState.firstChild(this); }
+  get firstChild(): ActivatedRoute|null { return this._routerState.firstChild(this); }
 
   /** The children of this route in the router state tree */
   get children(): ActivatedRoute[] { return this._routerState.children(this); }
 
   /** The path from the root of the router state tree to this route */
   get pathFromRoot(): ActivatedRoute[] { return this._routerState.pathFromRoot(this); }
+
+  get paramMap(): Observable<ParamMap> {
+    if (!this._paramMap) {
+      this._paramMap = map.call(this.params, (p: Params): ParamMap => convertToParamMap(p));
+    }
+    return this._paramMap;
+  }
+
+  get queryParamMap(): Observable<ParamMap> {
+    if (!this._queryParamMap) {
+      this._queryParamMap =
+          map.call(this.queryParams, (p: Params): ParamMap => convertToParamMap(p));
+    }
+    return this._queryParamMap;
+  }
 
   toString(): string {
     return this.snapshot ? this.snapshot.toString() : `Future(${this._futureSnapshot})`;
@@ -184,9 +204,9 @@ export function inheritedParamsDataResolve(route: ActivatedRouteSnapshot): Inher
   }
 
   return pathToRoot.slice(inhertingStartingFrom).reduce((res, curr) => {
-    const params = merge(res.params, curr.params);
-    const data = merge(res.data, curr.data);
-    const resolve = merge(res.resolve, curr._resolvedData);
+    const params = {...res.params, ...curr.params};
+    const data = {...res.data, ...curr.data};
+    const resolve = {...res.resolve, ...curr._resolvedData};
     return {params, data, resolve};
   }, <any>{params: {}, data: {}, resolve: {}});
 }
@@ -213,8 +233,8 @@ export function inheritedParamsDataResolve(route: ActivatedRouteSnapshot): Inher
  * @stable
  */
 export class ActivatedRouteSnapshot {
-  /** @internal **/
-  _routeConfig: Route;
+  /** The configuration used to match this route **/
+  public readonly routeConfig: Route|null;
   /** @internal **/
   _urlSegment: UrlSegmentGroup;
   /** @internal */
@@ -225,6 +245,10 @@ export class ActivatedRouteSnapshot {
   _resolvedData: Data;
   /** @internal */
   _routerState: RouterStateSnapshot;
+  /** @internal */
+  _paramMap: ParamMap;
+  /** @internal */
+  _queryParamMap: ParamMap;
 
   /** @internal */
   constructor(
@@ -241,25 +265,22 @@ export class ActivatedRouteSnapshot {
       /** The outlet name of the route */
       public outlet: string,
       /** The component of the route */
-      public component: Type<any>|string, routeConfig: Route, urlSegment: UrlSegmentGroup,
+      public component: Type<any>|string|null, routeConfig: Route|null, urlSegment: UrlSegmentGroup,
       lastPathIndex: number, resolve: ResolveData) {
-    this._routeConfig = routeConfig;
+    this.routeConfig = routeConfig;
     this._urlSegment = urlSegment;
     this._lastPathIndex = lastPathIndex;
     this._resolve = resolve;
   }
 
-  /** The configuration used to match this route */
-  get routeConfig(): Route { return this._routeConfig; }
-
   /** The root of the router state */
   get root(): ActivatedRouteSnapshot { return this._routerState.root; }
 
   /** The parent of this route in the router state tree */
-  get parent(): ActivatedRouteSnapshot { return this._routerState.parent(this); }
+  get parent(): ActivatedRouteSnapshot|null { return this._routerState.parent(this); }
 
   /** The first child of this route in the router state tree */
-  get firstChild(): ActivatedRouteSnapshot { return this._routerState.firstChild(this); }
+  get firstChild(): ActivatedRouteSnapshot|null { return this._routerState.firstChild(this); }
 
   /** The children of this route in the router state tree */
   get children(): ActivatedRouteSnapshot[] { return this._routerState.children(this); }
@@ -267,9 +288,23 @@ export class ActivatedRouteSnapshot {
   /** The path from the root of the router state tree to this route */
   get pathFromRoot(): ActivatedRouteSnapshot[] { return this._routerState.pathFromRoot(this); }
 
+  get paramMap(): ParamMap {
+    if (!this._paramMap) {
+      this._paramMap = convertToParamMap(this.params);
+    }
+    return this._paramMap;
+  }
+
+  get queryParamMap(): ParamMap {
+    if (!this._queryParamMap) {
+      this._queryParamMap = convertToParamMap(this.queryParams);
+    }
+    return this._queryParamMap;
+  }
+
   toString(): string {
     const url = this.url.map(segment => segment.toString()).join('/');
-    const matched = this._routeConfig ? this._routeConfig.path : '';
+    const matched = this.routeConfig ? this.routeConfig.path : '';
     return `Route(url:'${url}', path:'${matched}')`;
   }
 }
@@ -305,15 +340,15 @@ export class RouterStateSnapshot extends Tree<ActivatedRouteSnapshot> {
       /** The url from which this snapshot was created */
       public url: string, root: TreeNode<ActivatedRouteSnapshot>) {
     super(root);
-    setRouterStateSnapshot<RouterStateSnapshot, ActivatedRouteSnapshot>(this, root);
+    setRouterState(<RouterStateSnapshot>this, root);
   }
 
   toString(): string { return serializeNode(this._root); }
 }
 
-function setRouterStateSnapshot<U, T extends{_routerState: U}>(state: U, node: TreeNode<T>): void {
+function setRouterState<U, T extends{_routerState: U}>(state: U, node: TreeNode<T>): void {
   node.value._routerState = state;
-  node.children.forEach(c => setRouterStateSnapshot(state, c));
+  node.children.forEach(c => setRouterState(state, c));
 }
 
 function serializeNode(node: TreeNode<ActivatedRouteSnapshot>): string {
@@ -329,21 +364,22 @@ function serializeNode(node: TreeNode<ActivatedRouteSnapshot>): string {
 export function advanceActivatedRoute(route: ActivatedRoute): void {
   if (route.snapshot) {
     const currentSnapshot = route.snapshot;
-    route.snapshot = route._futureSnapshot;
-    if (!shallowEqual(currentSnapshot.queryParams, route._futureSnapshot.queryParams)) {
-      (<any>route.queryParams).next(route._futureSnapshot.queryParams);
+    const nextSnapshot = route._futureSnapshot;
+    route.snapshot = nextSnapshot;
+    if (!shallowEqual(currentSnapshot.queryParams, nextSnapshot.queryParams)) {
+      (<any>route.queryParams).next(nextSnapshot.queryParams);
     }
-    if (currentSnapshot.fragment !== route._futureSnapshot.fragment) {
-      (<any>route.fragment).next(route._futureSnapshot.fragment);
+    if (currentSnapshot.fragment !== nextSnapshot.fragment) {
+      (<any>route.fragment).next(nextSnapshot.fragment);
     }
-    if (!shallowEqual(currentSnapshot.params, route._futureSnapshot.params)) {
-      (<any>route.params).next(route._futureSnapshot.params);
+    if (!shallowEqual(currentSnapshot.params, nextSnapshot.params)) {
+      (<any>route.params).next(nextSnapshot.params);
     }
-    if (!shallowEqualArrays(currentSnapshot.url, route._futureSnapshot.url)) {
-      (<any>route.url).next(route._futureSnapshot.url);
+    if (!shallowEqualArrays(currentSnapshot.url, nextSnapshot.url)) {
+      (<any>route.url).next(nextSnapshot.url);
     }
-    if (!equalParamsAndUrlSegments(currentSnapshot, route._futureSnapshot)) {
-      (<any>route.data).next(route._futureSnapshot.data);
+    if (!shallowEqual(currentSnapshot.data, nextSnapshot.data)) {
+      (<any>route.data).next(nextSnapshot.data);
     }
   } else {
     route.snapshot = route._futureSnapshot;
@@ -360,5 +396,5 @@ export function equalParamsAndUrlSegments(
   const parentsMismatch = !a.parent !== !b.parent;
 
   return equalUrlParams && !parentsMismatch &&
-      (!a.parent || equalParamsAndUrlSegments(a.parent, b.parent));
+      (!a.parent || equalParamsAndUrlSegments(a.parent, b.parent !));
 }

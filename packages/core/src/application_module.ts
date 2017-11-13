@@ -6,15 +6,14 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-import {APP_INITIALIZER, ApplicationInitStatus} from './application_init';
-import {ApplicationRef, ApplicationRef_} from './application_ref';
+import {ApplicationInitStatus} from './application_init';
+import {ApplicationRef} from './application_ref';
 import {APP_ID_RANDOM_PROVIDER} from './application_tokens';
 import {IterableDiffers, KeyValueDiffers, defaultIterableDiffers, defaultKeyValueDiffers} from './change_detection/change_detection';
 import {Inject, Optional, SkipSelf} from './di/metadata';
 import {LOCALE_ID} from './i18n/tokens';
 import {Compiler} from './linker/compiler';
 import {NgModule} from './metadata';
-import {initServicesIfNeeded} from './view/index';
 
 export function _iterableDiffersFactory() {
   return defaultIterableDiffers;
@@ -28,10 +27,6 @@ export function _localeFactory(locale?: string): string {
   return locale || 'en-US';
 }
 
-export function _initViewEngine() {
-  initServicesIfNeeded();
-}
-
 /**
  * This module includes the providers of @angular/core that are needed
  * to bootstrap components via `ApplicationRef`.
@@ -40,8 +35,7 @@ export function _initViewEngine() {
  */
 @NgModule({
   providers: [
-    ApplicationRef_,
-    {provide: ApplicationRef, useExisting: ApplicationRef_},
+    ApplicationRef,
     ApplicationInitStatus,
     Compiler,
     APP_ID_RANDOM_PROVIDER,
@@ -52,7 +46,6 @@ export function _initViewEngine() {
       useFactory: _localeFactory,
       deps: [[new Inject(LOCALE_ID), new Optional(), new SkipSelf()]]
     },
-    {provide: APP_INITIALIZER, useValue: _initViewEngine, multi: true},
   ]
 })
 export class ApplicationModule {

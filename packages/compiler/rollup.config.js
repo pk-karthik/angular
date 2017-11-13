@@ -6,17 +6,23 @@
  * found in the LICENSE file at https://angular.io/license
  */
 
-export default {
-  entry: '../../dist/packages-dist/compiler/@angular/compiler.es5.js',
+const resolve = require('rollup-plugin-node-resolve');
+const sourcemaps = require('rollup-plugin-sourcemaps');
+
+const globals = {
+  '@angular/core': 'ng.core',
+  'rxjs/Observable': 'Rx',
+  'rxjs/Subject': 'Rx',
+};
+
+module.exports = {
+  entry: '../../dist/packages-dist/compiler/esm5/compiler.js',
   dest: '../../dist/packages-dist/compiler/bundles/compiler.umd.js',
   format: 'umd',
+  exports: 'named',
+  amd: {id: '@angular/compiler'},
   moduleName: 'ng.compiler',
-  globals: {
-    '@angular/core': 'ng.core',
-    'rxjs/Observable': 'Rx',
-    'rxjs/Subject': 'Rx',
-  },
-  plugins: [
-    //    nodeResolve({ jsnext: true, main: true }),
-  ]
+  plugins: [resolve(), sourcemaps()],
+  external: Object.keys(globals),
+  globals: globals
 };

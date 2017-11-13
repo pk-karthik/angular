@@ -78,7 +78,8 @@ twice in code reviews, with the generated version inscrutible by the reviewer.
 
 In TypeScript 1.8, the generated sources will have to be written alongside your originals,
 so set `genDir` to the same location as your files (typicially the same as `rootDir`).
-Add `**/*.ngfactory.ts` to your `.gitignore` or other mechanism for your version control system.
+Add `**/*.ngfactory.ts` and `**/*.ngsummary.json` to your `.gitignore` or other mechanism for your
+version control system.
 
 In TypeScript 1.9 and above, you can add a generated folder into your application,
 such as `codegen`. Using the `rootDirs` option, you can allow relative imports like
@@ -111,7 +112,7 @@ with the one already used in the plugin for TypeScript typechecking and emit.
 
 ## Design
 At a high level, this program
-- collects static metadata about the sources using the `tsc-wrapped` package
+- collects static metadata about the sources
 - uses the `OfflineCompiler` from `@angular/compiler` to codegen additional `.ts` files
 - these `.ts` files are written to the `genDir` path, then compiled together with the application.
 
@@ -119,9 +120,6 @@ At a high level, this program
 ```
 # Build Angular and the compiler
 ./build.sh
-
-# Copy over the package so we can test the compiler tests
-$ cp tools/@angular/tsc-wrapped/package.json dist/tools/@angular/tsc-wrapped
 
 # Run the test once
 # (First edit the LINKABLE_PKGS to use npm link instead of npm install)
@@ -132,7 +130,7 @@ $ ./scripts/ci/offline_compiler_test.sh
 
 # Recompile @angular/core module (needs to use tsc-ext to keep the metadata)
 $ export NODE_PATH=${NODE_PATH}:$(pwd)/dist/all:$(pwd)/dist/tools
-$ node dist/tools/@angular/tsc-wrapped/src/main -p packages/core/tsconfig-build.json
+$ node dist/tools/@angular/compiler-cli/src/main -p packages/core/tsconfig-build.json
 
 # Iterate on the test
 $ cd /tmp/wherever/e2e_test.1464388257/
